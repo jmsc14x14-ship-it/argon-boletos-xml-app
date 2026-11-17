@@ -1,0 +1,2789 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Argon — Automação de Boletos &amp; XML em Planilha Inteligente</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            argon: {
+              50: '#eef2ff',
+              100: '#e0e7ff',
+              400: '#818cf8',
+              500: '#6366f1',
+              600: '#4f46e5',
+              700: '#4338ca',
+              900: '#0f172a',
+              950: '#090d16'
+            }
+          }
+        }
+      }
+    };
+  </script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #090d16;
+      color: #f1f5f9;
+      overflow-x: hidden;
+    }
+    /* Custom Scrollbar for Spreadsheet Feel */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+    .sheet-grid {
+      border-collapse: separate;
+      border-spacing: 0;
+    }
+    .sheet-grid th {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: #111827;
+      border-bottom: 1px solid #1e293b;
+      border-right: 1px solid #1e293b;
+      user-select: none;
+    }
+    .sheet-grid td {
+      border-bottom: 1px solid #1e293b;
+      border-right: 1px solid #1e293b;
+      transition: background-color 0.15s ease;
+    }
+    .sheet-row:hover td {
+      background-color: rgba(99, 102, 241, 0.07);
+    }
+    .sheet-row.row-selected td {
+      background-color: rgba(99, 102, 241, 0.14);
+    }
+    .sheet-row.row-week-alert td:first-child {
+      box-shadow: inset 4px 0 0 #f59e0b;
+    }
+    .sheet-row.row-overdue td:first-child {
+      box-shadow: inset 4px 0 0 #ef4444;
+    }
+    .sheet-row.row-paid td:first-child {
+      box-shadow: inset 4px 0 0 #10b981;
+    }
+    .cell-editable:focus-within {
+      outline: 2px solid #6366f1;
+      outline-offset: -2px;
+      background-color: rgba(15, 23, 42, 0.95) !important;
+    }
+    @keyframes pulse-amber {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.45); }
+      50% { box-shadow: 0 0 0 6px rgba(245, 158, 11, 0); }
+    }
+    .badge-pulse-week {
+      animation: pulse-amber 2s infinite;
+    }
+    .barcode-bars {
+      background-image: repeating-linear-gradient(
+        90deg,
+        #0f172a 0px,
+        #0f172a 2px,
+        transparent 2px,
+        transparent 4px,
+        #0f172a 4px,
+        #0f172a 5px,
+        transparent 5px,
+        transparent 8px,
+        #0f172a 8px,
+        #0f172a 12px,
+        transparent 12px,
+        transparent 14px
+      );
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col bg-[#090d16] text-slate-100 selection:bg-indigo-500 selection:text-white">
+
+  <!-- TOP HEADER BAR -->
+  <header class="sticky top-0 z-30 bg-[#0d1322]/90 backdrop-blur-md border-b border-slate-800/80 px-4 lg:px-6 py-3">
+    <div class="max-w-[1600px] mx-auto flex flex-wrap items-center justify-between gap-3">
+      <!-- Brand Identity -->
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 via-indigo-600 to-violet-700 flex items-center justify-center shadow-lg shadow-indigo-500/25 border border-indigo-400/30">
+          <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="font-extrabold tracking-tight text-lg text-white">ARGON</span>
+            <span class="text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">XML &amp; Boletos Grid</span>
+          </div>
+          <p class="text-xs text-slate-400 hidden sm:block">Automação de NF-e em XML, Boletos Anexados e Alertas de Vencimento (7 Dias)</p>
+        </div>
+      </div>
+
+      <!-- Reference Date & Quick Actions -->
+      <div class="flex flex-wrap items-center gap-2 sm:gap-3">
+        <!-- Reference Date Selector for Testing 1-Week Notifications -->
+        <div class="flex items-center gap-2 bg-slate-900/90 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs">
+          <span class="text-slate-400 font-medium">Data Base:</span>
+          <input id="refDateInput" type="date" class="bg-transparent text-slate-100 font-mono text-xs focus:outline-none cursor-pointer" title="Altere a data base para simular o disparo de alertas de 1 semana" />
+          <button id="btnReferenceDateToday" type="button" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300">Voltar para hoje</button>
+        </div>
+
+        <!-- Notification Bell Button -->
+        <button id="btnToggleAlertsDrawer" type="button" class="relative flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 text-xs font-semibold transition">
+          <svg class="w-4 h-4 text-amber-400 animate-bounce" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+          </svg>
+          <span>Alertas ≤ 7 Dias</span>
+          <span id="headerAlertCount" class="px-1.5 py-0.5 text-[11px] font-bold rounded-full bg-amber-500 text-slate-950">0</span>
+        </button>
+
+        <!-- Load example records Button -->
+          <button id="btnSimulateXmlBatch" type="button" class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-medium transition" title="Carregar os seis boletos de exemplo">
+          <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+          <span>Carregar exemplos</span>
+        </button>
+
+        <!-- Primary Upload XML + Boleto Button -->
+        <button id="btnOpenUploadModal" type="button" class="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/25 transition">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+          </svg>
+          <span>Importar XML / Boleto</span>
+        </button>
+
+        <!-- New Manual Entry Button -->
+        <button id="btnOpenNewModal" type="button" class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 text-xs font-semibold transition">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          <span>+ Linha</span>
+        </button>
+
+        <!-- Local backup and install options -->
+        <button id="btnOpenAppDownloadModal" type="button" class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-violet-600/25 hover:bg-violet-600/40 border border-violet-400/40 text-violet-200 text-xs font-semibold transition" title="Backup e instalação do aplicativo">
+          <svg class="w-4 h-4 text-violet-300" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+          <span>Backup / Instalação</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- 1-WEEK NOTIFICATION BANNER (DYNAMICALLY UPDATED) -->
+  <section id="weekAlertBanner" class="bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-rose-500/15 border-b border-amber-500/30 px-4 lg:px-6 py-2.5">
+    <div class="max-w-[1600px] mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-2">
+      <div class="flex items-center gap-2.5">
+        <span class="flex h-2.5 w-2.5 relative">
+          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+          <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+        </span>
+        <p id="weekAlertBannerText" class="text-xs sm:text-sm font-medium text-amber-200">
+          Carregando radar de vencimentos...
+        </p>
+      </div>
+      <div class="flex items-center gap-2 self-end md:self-auto">
+        <button id="btnFilterWeekNow" type="button" class="text-xs font-semibold px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-400/30 transition">
+          Filtrar Vencendo em ≤ 7 Dias
+        </button>
+        <button id="btnResetFiltersTop" type="button" class="hidden text-xs font-medium px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition">
+          Mostrar Todos
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- MAIN WORKSPACE -->
+  <main class="flex-1 max-w-[1600px] w-full mx-auto px-4 lg:px-6 py-5 flex flex-col gap-5">
+
+    <!-- KPI SUMMARY CARDS -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+      <!-- KPI 1: Alertas de 1 Semana -->
+      <div id="kpiCardWeek" class="cursor-pointer group bg-[#111827] hover:bg-[#162033] border border-amber-500/40 rounded-xl p-4 transition relative overflow-hidden">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-xs font-semibold uppercase tracking-wider text-amber-400">Alerta 1 Semana (≤ 7d)</span>
+          <span class="p-1.5 rounded-lg bg-amber-500/15 text-amber-400">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </span>
+        </div>
+        <div id="kpiWeekTotal" class="text-xl font-bold text-white font-mono">R$ 0,00</div>
+        <div class="flex items-center justify-between mt-2 text-xs">
+          <span id="kpiWeekCount" class="text-amber-300 font-medium">0 boletos próximos</span>
+          <span class="text-slate-400 group-hover:text-amber-300 transition">Filtrar →</span>
+        </div>
+      </div>
+
+      <!-- KPI 2: Vencidos -->
+      <div id="kpiCardOverdue" class="cursor-pointer group bg-[#111827] hover:bg-[#162033] border border-rose-500/30 rounded-xl p-4 transition">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-xs font-semibold uppercase tracking-wider text-rose-400">Vencidos / Atraso</span>
+          <span class="p-1.5 rounded-lg bg-rose-500/15 text-rose-400">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </span>
+        </div>
+        <div id="kpiOverdueTotal" class="text-xl font-bold text-white font-mono">R$ 0,00</div>
+        <div class="flex items-center justify-between mt-2 text-xs">
+          <span id="kpiOverdueCount" class="text-rose-300 font-medium">0 boletos vencidos</span>
+          <span class="text-slate-400 group-hover:text-rose-300 transition">Filtrar →</span>
+        </div>
+      </div>
+
+      <!-- KPI 3: No Prazo (> 7 dias) -->
+      <div id="kpiCardUpcoming" class="cursor-pointer group bg-[#111827] hover:bg-[#162033] border border-slate-800 rounded-xl p-4 transition">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-xs font-semibold uppercase tracking-wider text-sky-400">Programados (&gt; 7d)</span>
+          <span class="p-1.5 rounded-lg bg-sky-500/15 text-sky-400">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+          </span>
+        </div>
+        <div id="kpiUpcomingTotal" class="text-xl font-bold text-white font-mono">R$ 0,00</div>
+        <div class="flex items-center justify-between mt-2 text-xs">
+          <span id="kpiUpcomingCount" class="text-sky-300 font-medium">0 boletos futuros</span>
+          <span class="text-slate-400 group-hover:text-sky-300 transition">Filtrar →</span>
+        </div>
+      </div>
+
+      <!-- KPI 4: Liquidados / Pagos -->
+      <div id="kpiCardPaid" class="cursor-pointer group bg-[#111827] hover:bg-[#162033] border border-slate-800 rounded-xl p-4 transition">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-xs font-semibold uppercase tracking-wider text-emerald-400">Pagos / Baixados</span>
+          <span class="p-1.5 rounded-lg bg-emerald-500/15 text-emerald-400">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </span>
+        </div>
+        <div id="kpiPaidTotal" class="text-xl font-bold text-white font-mono">R$ 0,00</div>
+        <div class="flex items-center justify-between mt-2 text-xs">
+          <span id="kpiPaidCount" class="text-emerald-300 font-medium">0 boletos pagos</span>
+          <span class="text-slate-400 group-hover:text-emerald-300 transition">Filtrar →</span>
+        </div>
+      </div>
+
+      <!-- KPI 5: Automação XML & Anexos -->
+      <div id="kpiCardAll" class="cursor-pointer group bg-[#111827] hover:bg-[#162033] border border-indigo-500/30 rounded-xl p-4 transition">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-xs font-semibold uppercase tracking-wider text-indigo-400">XML + Boleto Anexo</span>
+          <span class="p-1.5 rounded-lg bg-indigo-500/15 text-indigo-400">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+            </svg>
+          </span>
+        </div>
+        <div id="kpiAttachmentRate" class="text-xl font-bold text-white font-mono">100%</div>
+        <div class="flex items-center justify-between mt-2 text-xs">
+          <span id="kpiXmlLinkedCount" class="text-indigo-300 font-medium">0 vinculados</span>
+          <span class="text-slate-400 group-hover:text-indigo-300 transition">Ver Todos →</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- SPREADSHEET TOOLBAR & ADAPTIVE DESIGN CONTROLS -->
+    <div class="bg-[#111827] border border-slate-800 rounded-xl p-3.5 flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3">
+      <!-- Left: Search, Supplier Filter, Urgency Filter -->
+      <div class="flex flex-wrap items-center gap-2.5 flex-1">
+        <!-- Search Input -->
+        <div class="relative flex-1 min-w-[220px] max-w-md">
+          <svg class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input id="searchInput" type="text" placeholder="Buscar fornecedor, CNPJ, NF-e, valor ou linha digitável..." class="w-full pl-9 pr-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700/80 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500" />
+        </div>
+
+        <!-- Supplier Filter -->
+        <select id="supplierFilter" class="px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700/80 text-xs text-slate-200 focus:outline-none focus:border-indigo-500">
+          <option value="ALL">Todos os Fornecedores</option>
+        </select>
+
+        <!-- Status / Notification Filter -->
+        <select id="statusFilter" class="px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700/80 text-xs text-slate-200 focus:outline-none focus:border-indigo-500">
+          <option value="ALL">Todos os Status de Vencimento</option>
+          <option value="WEEK_ALERT">🔔 Alerta 1 Semana (Vence em ≤ 7 dias)</option>
+          <option value="OVERDUE">🚨 Vencidos (Em Atraso)</option>
+          <option value="UPCOMING">📅 Programados (&gt; 7 dias)</option>
+          <option value="PAID">✅ Pagos / Liquidados</option>
+        </select>
+
+        <!-- Group By Selector (Spreadsheet Adaptation) -->
+        <select id="groupBySelect" class="px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700/80 text-xs text-slate-200 focus:outline-none focus:border-indigo-500">
+          <option value="NONE">Sem Agrupamento (Planilha Contínua)</option>
+          <option value="SUPPLIER">Agrupar por Fornecedor</option>
+          <option value="URGENCY">Agrupar por Janela de Vencimento</option>
+        </select>
+      </div>
+
+      <!-- Right: View Switcher (Planilha / Cards / Calendário), Density & Export -->
+      <div class="flex flex-wrap items-center justify-between sm:justify-end gap-2">
+        <!-- View Mode Tabs -->
+        <div class="inline-flex rounded-lg bg-slate-900 p-1 border border-slate-800">
+          <button id="viewBtnSheet" type="button" class="px-3 py-1 rounded-md text-xs font-semibold bg-indigo-600 text-white transition flex items-center gap-1.5">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+            <span>Planilha Adaptativa</span>
+          </button>
+          <button id="viewBtnCards" type="button" class="px-3 py-1 rounded-md text-xs font-medium text-slate-400 hover:text-slate-200 transition flex items-center gap-1.5">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+            </svg>
+            <span>Painel Kanban</span>
+          </button>
+          <button id="viewBtnHistory" type="button" class="px-3 py-1 rounded-md text-xs font-medium text-slate-400 hover:text-slate-200 transition">Histórico</button>
+        </div>
+
+        <!-- Density Toggle -->
+        <button id="btnToggleDensity" type="button" class="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-xs text-slate-300 transition" title="Alternar altura das linhas da planilha">
+          Densidade: <span id="densityLabel" class="font-semibold text-indigo-400">Confortável</span>
+        </button>
+
+        <!-- Export CSV (Excel) -->
+        <button id="btnExportCsv" type="button" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-xs font-medium text-emerald-400 transition" title="Exportar dados para Excel (.csv)">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+          <span>Exportar Excel (CSV)</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- FORMULA / ACTIVE CELL BAR (EXCEL-STYLE ENHANCED BAR) -->
+    <div class="bg-[#0d1322] border border-slate-800/90 rounded-lg px-3 py-1.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+      <div class="flex items-center gap-2 min-w-0 flex-1">
+        <span id="activeCellCoord" class="font-mono font-bold px-2 py-0.5 rounded bg-slate-800 text-indigo-400 border border-slate-700">A1</span>
+        <span class="text-slate-500 font-mono">fx</span>
+        <span id="activeCellFormulaText" class="text-slate-300 truncate font-mono">Clique em qualquer célula de Fornecedor, Vencimento ou Valor para editar diretamente ou abrir o boleto anexo.</span>
+      </div>
+      <div class="flex items-center gap-3 text-[11px] text-slate-400">
+        <span><strong class="text-amber-400">● Âmbar:</strong> Notificação ≤ 7 dias</span>
+        <span><strong class="text-rose-400">● Vermelho:</strong> Vencido</span>
+        <span><strong class="text-emerald-400">● Verde:</strong> Pago</span>
+      </div>
+    </div>
+
+    <!-- VIEW 1: SMART SPREADSHEET GRID -->
+    <section id="sheetViewContainer" class="bg-[#111827] border border-slate-800 rounded-xl overflow-hidden shadow-2xl flex flex-col">
+      <div class="overflow-x-auto max-h-[560px]">
+        <table class="w-full sheet-grid text-left border-collapse">
+          <thead>
+            <tr class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+              <th class="py-3 px-3 w-10 text-center">#</th>
+              <th class="py-3 px-3.5 min-w-[230px] cursor-pointer hover:text-white" data-sort="supplier">
+                <div class="flex items-center justify-between">
+                  <span>Fornecedor / Emitente XML</span>
+                  <span class="text-slate-600">↕</span>
+                </div>
+              </th>
+              <th class="py-3 px-3.5 min-w-[190px] cursor-pointer hover:text-white" data-sort="dueDate">
+                <div class="flex items-center justify-between">
+                  <span>Vencimento &amp; Alerta (7d)</span>
+                  <span class="text-indigo-400">↕</span>
+                </div>
+              </th>
+              <th class="py-3 px-3.5 min-w-[130px] cursor-pointer hover:text-white" data-sort="amount">
+                <div class="flex items-center justify-between">
+                  <span>Valor (R$)</span>
+                  <span class="text-slate-600">↕</span>
+                </div>
+              </th>
+              <th class="py-3 px-3.5 min-w-[155px]">NF-e / XML Vinculado</th>
+              <th class="py-3 px-3.5 min-w-[210px]">Boleto Anexado (PDF / Código)</th>
+              <th class="py-3 px-3.5 min-w-[130px]">Status</th>
+              <th class="py-3 px-3.5 min-w-[150px] text-right">Ações Rápidas</th>
+            </tr>
+          </thead>
+          <tbody id="sheetTableBody" class="divide-y divide-slate-800/60 text-xs">
+            <!-- Populated dynamically via JS -->
+          </tbody>
+        </table>
+      </div>
+
+      <!-- SPREADSHEET SUMMARY FOOTER BAR -->
+      <div class="bg-[#0d1322] border-t border-slate-800 px-4 py-3 flex flex-wrap items-center justify-between gap-4 text-xs">
+        <div class="flex flex-wrap items-center gap-4">
+          <span class="text-slate-400">Registros visíveis: <strong id="footerRowCount" class="text-white font-mono">0</strong></span>
+          <span class="text-slate-400">Com XML NF-e: <strong id="footerXmlCount" class="text-indigo-400 font-mono">0</strong></span>
+          <span class="text-slate-400">Com Boleto Anexado: <strong id="footerBoletoCount" class="text-emerald-400 font-mono">0</strong></span>
+        </div>
+        <div class="flex flex-wrap items-center gap-5">
+          <div>
+            <span class="text-slate-400">Total Vencendo ≤ 7d: </span>
+            <strong id="footerWeekSum" class="text-amber-400 font-mono">R$ 0,00</strong>
+          </div>
+          <div>
+            <span class="text-slate-400">Total em Aberto: </span>
+            <strong id="footerOpenSum" class="text-white font-mono">R$ 0,00</strong>
+          </div>
+          <div class="px-2.5 py-1 rounded bg-indigo-500/15 border border-indigo-500/30">
+            <span class="text-indigo-300">SOMA FILTRADA: </span>
+            <strong id="footerGrandSum" class="text-white font-mono text-sm">R$ 0,00</strong>
+          </div>
+        </div>
+      </div>
+      <p class="px-4 py-3 text-center text-[11px] text-slate-500">Seus dados ficam somente neste navegador</p>
+    </section>
+
+    <section id="historyViewContainer" class="hidden bg-[#111827] border border-slate-800 rounded-xl overflow-hidden shadow-2xl flex-col">
+      <div class="p-4 border-b border-slate-800 flex flex-wrap items-end justify-between gap-3">
+        <div class="flex flex-wrap items-end gap-3">
+          <label class="text-xs text-slate-400">Período<select id="historyPeriod" class="block mt-1 rounded bg-slate-900 border border-slate-700 px-2 py-1.5 text-slate-200"><option value="this">Este mês</option><option value="last">Mês passado</option><option value="custom">Personalizado</option></select></label>
+          <label id="historyFromWrap" class="hidden text-xs text-slate-400">De<input id="historyFrom" type="date" class="block mt-1 rounded bg-slate-900 border border-slate-700 px-2 py-1.5 text-slate-200"></label>
+          <label id="historyToWrap" class="hidden text-xs text-slate-400">Até<input id="historyTo" type="date" class="block mt-1 rounded bg-slate-900 border border-slate-700 px-2 py-1.5 text-slate-200"></label>
+          <label class="text-xs text-slate-400">Fornecedor<select id="historySupplier" class="block mt-1 max-w-56 rounded bg-slate-900 border border-slate-700 px-2 py-1.5 text-slate-200"><option value="">Todos</option></select></label>
+        </div>
+        <button id="btnExportHistoryCsv" type="button" class="px-3 py-2 rounded bg-emerald-700 hover:bg-emerald-600 text-xs font-semibold text-white">Exportar histórico (CSV)</button>
+      </div>
+      <div class="overflow-auto max-h-[560px]"><table class="w-full min-w-[1050px] text-left text-xs"><thead class="sticky top-0 bg-slate-900 text-slate-400"><tr><th class="p-3">Data pago</th><th class="p-3">Fornecedor</th><th class="p-3">NF-e</th><th class="p-3">Parcela</th><th class="p-3">Valor pago</th><th class="p-3">Diferença vs. original</th><th class="p-3">Anexos</th></tr></thead><tbody id="historyTableBody"></tbody></table></div>
+      <div id="historyPeriodTotal" class="p-3 border-t border-slate-800 text-right text-sm font-semibold text-emerald-300">Total pago no período: R$ 0,00</div>
+    </section>
+
+    <!-- VIEW 2: KANBAN / CARDS BY DUE DATE URGENCY -->
+    <section id="cardsViewContainer" class="hidden grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+      <!-- Column 1: Overdue -->
+      <div class="bg-[#111827] border border-rose-500/30 rounded-xl p-3.5 flex flex-col gap-3">
+        <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
+            <h3 class="text-xs font-bold uppercase tracking-wider text-rose-400">Vencidos</h3>
+          </div>
+          <span id="kanbanCountOverdue" class="text-xs font-mono px-2 py-0.5 rounded bg-rose-500/15 text-rose-300">0</span>
+        </div>
+        <div id="kanbanColOverdue" class="flex flex-col gap-2.5 max-h-[500px] overflow-y-auto pr-1"></div>
+      </div>
+
+      <!-- Column 2: Due within 7 days (1 Week Alert) -->
+      <div class="bg-[#111827] border border-amber-500/40 rounded-xl p-3.5 flex flex-col gap-3">
+        <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping"></span>
+            <h3 class="text-xs font-bold uppercase tracking-wider text-amber-300">Alerta 1 Semana (≤ 7d)</h3>
+          </div>
+          <span id="kanbanCountWeek" class="text-xs font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold">0</span>
+        </div>
+        <div id="kanbanColWeek" class="flex flex-col gap-2.5 max-h-[500px] overflow-y-auto pr-1"></div>
+      </div>
+
+      <!-- Column 3: Upcoming (> 7 days) -->
+      <div class="bg-[#111827] border border-slate-800 rounded-xl p-3.5 flex flex-col gap-3">
+        <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-sky-400"></span>
+            <h3 class="text-xs font-bold uppercase tracking-wider text-sky-400">Próximos (&gt; 7d)</h3>
+          </div>
+          <span id="kanbanCountUpcoming" class="text-xs font-mono px-2 py-0.5 rounded bg-sky-500/15 text-sky-300">0</span>
+        </div>
+        <div id="kanbanColUpcoming" class="flex flex-col gap-2.5 max-h-[500px] overflow-y-auto pr-1"></div>
+      </div>
+
+      <!-- Column 4: Paid -->
+      <div class="bg-[#111827] border border-slate-800 rounded-xl p-3.5 flex flex-col gap-3">
+        <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+            <h3 class="text-xs font-bold uppercase tracking-wider text-emerald-400">Pagos / Baixados</h3>
+          </div>
+          <span id="kanbanCountPaid" class="text-xs font-mono px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300">0</span>
+        </div>
+        <div id="kanbanColPaid" class="flex flex-col gap-2.5 max-h-[500px] overflow-y-auto pr-1"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- SLIDE-OVER DRAWER: CENTRAL DE NOTIFICAÇÕES DE 1 SEMANA -->
+  <div id="alertsDrawerBackdrop" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 hidden flex justify-end">
+    <div class="w-full max-w-md bg-[#0f172a] border-l border-slate-800 h-full flex flex-col justify-between p-5 shadow-2xl">
+      <div class="flex flex-col h-full overflow-hidden">
+        <div class="flex items-center justify-between pb-4 border-b border-slate-800">
+          <div class="flex items-center gap-2.5">
+            <div class="p-2 rounded-lg bg-amber-500/20 text-amber-400">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+              </svg>
+            </div>
+            <div>
+              <h2 class="text-sm font-bold text-white">Notificações de Vencimento (1 Semana)</h2>
+              <p class="text-xs text-slate-400">Boletos que vencem nos próximos 7 dias ou já vencidos</p>
+            </div>
+          </div>
+          <button id="btnCloseAlertsDrawer" type="button" class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800">✕</button>
+        </div>
+
+        <!-- Rule Configuration Box -->
+        <div class="my-3 p-3 rounded-lg bg-slate-900/90 border border-slate-800 flex items-center justify-between text-xs">
+          <div>
+            <span class="font-semibold text-slate-200">Regra de Antecedência Ativa:</span>
+            <p class="text-slate-400 text-[11px]">Notificar automaticamente quando faltar ≤ 7 dias</p>
+          </div>
+          <span class="px-2 py-1 rounded bg-amber-500/20 text-amber-300 font-mono font-bold">7 DIAS</span>
+        </div>
+
+        <!-- Dynamic Alert Items List -->
+        <div id="alertsDrawerList" class="flex-1 overflow-y-auto space-y-2.5 pr-1">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="paymentModalBackdrop" class="fixed inset-0 bg-black/70 z-[60] hidden items-center justify-center p-4">
+    <form id="paymentForm" class="w-full max-w-md rounded-xl border border-slate-700 bg-[#111827] p-5 shadow-2xl space-y-3">
+      <h2 class="text-base font-bold">Registrar pagamento</h2>
+      <label class="block text-xs text-slate-300">Data do pagamento<input id="paymentDate" type="date" required class="mt-1 w-full rounded bg-slate-900 border border-slate-700 p-2 text-white"></label>
+      <label class="block text-xs text-slate-300">Valor pago (R$)<input id="paymentAmount" type="number" step="0.01" min="0" required class="mt-1 w-full rounded bg-slate-900 border border-slate-700 p-2 text-white"></label>
+      <label class="block text-xs text-slate-300">Forma<select id="paymentMethod" class="mt-1 w-full rounded bg-slate-900 border border-slate-700 p-2 text-white"><option>Boleto</option><option>Pix</option><option>Transferência</option><option>Outro</option></select></label>
+      <label class="block text-xs text-slate-300">Comprovante (opcional, máx. 5 MB)<input id="paymentProof" type="file" accept=".pdf,image/*" class="mt-1 block w-full text-xs"></label>
+      <label class="block text-xs text-slate-300">Observação<textarea id="paymentNote" rows="2" class="mt-1 w-full rounded bg-slate-900 border border-slate-700 p-2 text-white"></textarea></label>
+      <div class="flex justify-end gap-2 pt-2"><button id="cancelPayment" type="button" class="rounded bg-slate-700 px-3 py-2 text-xs">Cancelar</button><button type="submit" class="rounded bg-emerald-600 px-3 py-2 text-xs font-semibold">Confirmar pagamento</button></div>
+    </form>
+  </div>
+
+  <!-- MODAL 1: IMPORTAR XML NF-e & ANEXAR BOLETO -->
+  <div id="uploadModalBackdrop" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-[#111827] border border-slate-700 rounded-2xl max-w-2xl w-full p-6 shadow-2xl">
+      <div class="flex items-center justify-between pb-4 border-b border-slate-800">
+        <div>
+          <h2 class="text-base font-bold text-white">Automação de XML (NF-e) + Anexo de Boletos</h2>
+          <p class="text-xs text-slate-400">Arraste seus arquivos <code class="text-indigo-400">.xml</code> de Nota Fiscal Eletrônica e anexe os boletos correspondentes</p>
+        </div>
+        <button id="btnCloseUploadModal" type="button" class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800">✕</button>
+      </div>
+
+      <div class="my-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <!-- Step 1: XML File Dropzone -->
+        <label for="xmlFileInput" class="cursor-pointer group border-2 border-dashed border-indigo-500/40 hover:border-indigo-400 bg-indigo-500/5 hover:bg-indigo-500/10 rounded-xl p-5 flex flex-col items-center justify-center text-center transition">
+          <div class="w-12 h-12 rounded-full bg-indigo-500/20 text-indigo-400 flex items-center justify-center mb-3 group-hover:scale-105 transition">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+          </div>
+          <span class="text-xs font-bold text-white mb-1">1. Selecionar Arquivo(s) XML (NF-e)</span>
+          <span class="text-[11px] text-slate-400">Extrai emitente (CNPJ ou CPF), Nº NF e dados das duplicatas (<code class="text-indigo-300">&lt;dVenc&gt;</code> e <code class="text-indigo-300">&lt;vDup&gt;</code>)</span>
+          <input id="xmlFileInput" type="file" accept=".xml,text/xml,application/xml" multiple class="hidden" />
+          <span id="xmlSelectedStatus" class="mt-3 px-2.5 py-1 rounded bg-slate-800 text-[11px] text-indigo-300 font-mono">Nenhum XML selecionado</span>
+        </label>
+
+        <!-- Step 2: Optional Boleto PDF/Image Attachment -->
+        <label for="boletoFileInput" class="cursor-pointer group border-2 border-dashed border-emerald-500/40 hover:border-emerald-400 bg-emerald-500/5 hover:bg-emerald-500/10 rounded-xl p-5 flex flex-col items-center justify-center text-center transition">
+          <div class="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mb-3 group-hover:scale-105 transition">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+            </svg>
+          </div>
+          <span class="text-xs font-bold text-white mb-1">2. Anexar Boleto (PDF / Imagem)</span>
+          <span class="text-[11px] text-slate-400">Fica salvo junto ao registro (máximo 5 MB por arquivo)</span>
+          <input id="boletoFileInput" type="file" accept=".pdf,image/*,.png,.jpg,.jpeg" class="hidden" />
+          <span id="boletoSelectedStatus" class="mt-3 px-2.5 py-1 rounded bg-slate-800 text-[11px] text-emerald-300 font-mono">Opcional</span>
+        </label>
+        <label for="danfeFileInput" class="cursor-pointer group border-2 border-dashed border-sky-500/40 hover:border-sky-400 bg-sky-500/5 rounded-xl p-4 flex flex-col items-center justify-center text-center transition md:col-span-2">
+          <span class="text-xs font-bold text-white mb-1">3. PDF da nota (DANFE), opcional</span><span class="text-[11px] text-slate-400">Até 5 MB; será vinculado à NF-e</span>
+          <input id="danfeFileInput" type="file" accept=".pdf,application/pdf" class="hidden" />
+          <span id="danfeSelectedStatus" class="mt-2 px-2.5 py-1 rounded bg-slate-800 text-[11px] text-sky-300 font-mono">Opcional</span>
+        </label>
+      </div>
+
+      <!-- Paste Raw XML Option or Download Sample XML -->
+      <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-3.5 mb-5">
+        <div class="flex items-center justify-between mb-2">
+          <label for="rawXmlTextarea" class="text-xs font-semibold text-slate-300">Ou cole o conteúdo de um XML NF-e abaixo:</label>
+          <div class="flex items-center gap-2">
+            <button id="btnFillSampleXml" type="button" class="text-[11px] font-semibold px-2.5 py-1 rounded bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 transition">
+              Preencher XML NF-e de Exemplo
+            </button>
+            <button id="btnDownloadSampleXml" type="button" class="text-[11px] font-medium px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition">
+              Baixar .XML Modelo
+            </button>
+          </div>
+        </div>
+        <textarea id="rawXmlTextarea" rows="4" placeholder="Cole aqui a estrutura <nfeProc> ou <NFe> para extrair fornecedor e duplicatas..." class="w-full rounded-lg bg-slate-950 border border-slate-800 p-2.5 text-[11px] font-mono text-slate-200 focus:outline-none focus:border-indigo-500"></textarea>
+      </div>
+
+      <div class="flex items-center justify-end gap-2.5">
+        <button id="btnCancelUploadModal" type="button" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-300">Cancelar</button>
+        <button id="btnProcessXmlImport" type="button" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold text-white shadow-lg shadow-indigo-600/30">
+          Processar XML &amp; Anexar à Planilha
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 2: VISUALIZADOR DO BOLETO ANEXADO E XML NF-E -->
+  <div id="boletoPreviewModalBackdrop" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-[#111827] border border-slate-700 rounded-2xl max-w-3xl w-full p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between pb-4 border-b border-slate-800">
+        <div class="flex items-center gap-2.5">
+          <span class="px-2.5 py-1 rounded-md bg-indigo-500/20 text-indigo-300 font-mono text-xs font-bold" id="previewModalNfeBadge">NF-e #000</span>
+          <h2 class="text-base font-bold text-white" id="previewModalSupplier">Fornecedor</h2>
+        </div>
+        <button id="btnCloseBoletoPreview" type="button" class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800">✕</button>
+      </div>
+
+      <!-- Simulated / Attached Brazilian Boleto Sheet -->
+      <div class="my-4 bg-white text-slate-900 rounded-xl p-5 shadow-inner border border-slate-300">
+        <div class="flex flex-wrap items-center justify-between border-b-2 border-slate-900 pb-2 mb-3 gap-2">
+          <div class="flex items-center gap-3">
+            <span class="font-extrabold text-base tracking-tight text-indigo-900" id="boletoBankName">Banco não informado</span>
+          </div>
+          <div class="font-mono text-xs sm:text-sm font-bold tracking-tight text-slate-800" id="boletoDigitableLine">
+            -
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-4 gap-2 text-xs border-b border-slate-300 pb-3 mb-3">
+          <div class="sm:col-span-2 bg-slate-50 p-2 rounded border border-slate-200">
+            <span class="block text-[10px] uppercase text-slate-500 font-semibold">Beneficiário / Fornecedor (Extraído do XML)</span>
+            <strong id="boletoBeneficiario" class="text-slate-900 text-xs">-</strong>
+            <span id="boletoCnpj" class="block text-[11px] font-mono text-slate-600">-</span>
+          </div>
+          <div class="bg-amber-50 p-2 rounded border border-amber-300">
+            <span class="block text-[10px] uppercase text-amber-800 font-semibold">Data de Vencimento</span>
+            <strong id="boletoVencimento" class="text-amber-950 font-mono text-sm">-</strong>
+          </div>
+          <div class="bg-indigo-50 p-2 rounded border border-indigo-200">
+            <span class="block text-[10px] uppercase text-indigo-800 font-semibold">Valor do Documento</span>
+            <strong id="boletoValor" class="text-indigo-950 font-mono text-sm">-</strong>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs mb-4">
+          <div class="p-2 border border-slate-200 rounded">
+            <span class="block text-[10px] text-slate-500">Nº Documento / NF-e</span>
+            <span id="boletoDocNum" class="font-mono font-semibold">-</span>
+          </div>
+          <div class="p-2 border border-slate-200 rounded">
+            <span class="block text-[10px] text-slate-500">Parcela / Duplicata</span>
+            <span id="boletoParcela" class="font-mono font-semibold">-</span>
+          </div>
+          <div class="p-2 border border-slate-200 rounded">
+            <span class="block text-[10px] text-slate-500">Arquivo Boleto Anexo</span>
+            <span id="boletoAttachmentName" class="font-mono font-semibold text-emerald-700 truncate block">-</span>
+          </div>
+          <div class="p-2 border border-slate-200 rounded">
+            <span class="block text-[10px] text-slate-500">Arquivo XML Origem</span>
+            <span id="boletoXmlName" class="font-mono font-semibold text-indigo-700 truncate block">-</span>
+          </div>
+        </div>
+
+        <!-- Visual Barcode Representation -->
+        <div class="pt-2 border-t border-dashed border-slate-300 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div class="w-full sm:w-2/3 h-12 barcode-bars rounded opacity-90"></div>
+          <div class="flex items-center gap-2 self-end sm:self-center">
+            <span id="previewDigitableStatus" class="text-[10px] font-semibold text-rose-600">confira os dígitos</span>
+            <button id="btnCopyBarcodeModal" type="button" class="px-3 py-1.5 rounded bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition">
+              Copiar Linha Digitável
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Attached XML Snippet & Replace Attachment Controls -->
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-4">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+          <span class="text-xs font-semibold text-indigo-300">Resumo dos Metadados XML Vinculados</span>
+          <div class="flex items-center gap-2">
+            <button id="btnOpenStoredBoleto" type="button" class="text-xs font-semibold px-3 py-1 rounded bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 border border-indigo-500/30 transition">Abrir arquivo anexado</button>
+            <label for="replaceAttachmentInput" class="cursor-pointer text-xs font-semibold px-3 py-1 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 transition">
+              📎 Substituir / Anexar Boleto (máx. 5 MB)
+              <input id="replaceAttachmentInput" type="file" accept=".pdf,image/*" class="hidden" />
+            </label>
+          </div>
+        </div>
+        <pre id="previewXmlCode" class="text-[11px] font-mono text-slate-300 bg-slate-950 p-3 rounded-lg overflow-x-auto max-h-36"></pre>
+      </div>
+
+      <div class="flex items-center justify-between">
+        <button id="btnTogglePaidFromModal" type="button" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white transition">
+          ✓ Marcar Boleto como Pago
+        </button>
+        <button id="btnCloseBoletoPreviewBottom" type="button" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200">
+          Fechar Visualização
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 3: ADICIONAR NOVA LINHA MANUALMENTE -->
+  <div id="newEntryModalBackdrop" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-[#111827] border border-slate-700 rounded-2xl max-w-lg w-full p-6 shadow-2xl">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+        <h2 class="text-base font-bold text-white">Adicionar Boleto &amp; Fornecedor na Planilha</h2>
+        <button id="btnCloseNewModal" type="button" class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800">✕</button>
+      </div>
+      <form id="newEntryForm" class="space-y-3.5 my-4 text-xs">
+        <div>
+          <label class="block text-slate-300 font-semibold mb-1">Nome do Fornecedor *</label>
+          <input id="inputNewSupplier" type="text" required placeholder="Ex: Distribuidora Brasil Sul Ltda" class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white focus:outline-none focus:border-indigo-500" />
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-300 font-semibold mb-1">CNPJ ou CPF do Fornecedor</label>
+            <input id="inputNewCnpj" type="text" placeholder="00.000.000/0001-00" class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white font-mono focus:outline-none focus:border-indigo-500" />
+          </div>
+          <div>
+            <label class="block text-slate-300 font-semibold mb-1">Nº da NF-e / Parcela</label>
+            <input id="inputNewNfe" type="text" placeholder="NF 48920 - Parc 01/02" class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white font-mono focus:outline-none focus:border-indigo-500" />
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-300 font-semibold mb-1">Data de Vencimento *</label>
+            <input id="inputNewDueDate" type="date" required value="2026-11-21" class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white font-mono focus:outline-none focus:border-indigo-500" />
+          </div>
+          <div>
+            <label class="block text-slate-300 font-semibold mb-1">Valor do Boleto (R$) *</label>
+            <input id="inputNewAmount" type="number" step="0.01" min="0.01" required placeholder="1450.00" class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white font-mono focus:outline-none focus:border-indigo-500" />
+          </div>
+        </div>
+        <div>
+          <label class="block text-slate-300 font-semibold mb-1">Linha Digitável do Boleto</label>
+          <input id="inputNewBarcode" type="text" placeholder="Digite ou cole a linha digitável" class="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-white font-mono focus:outline-none focus:border-indigo-500" />
+          <span id="newDigitableStatus" class="mt-1 block text-[10px] font-semibold text-rose-300">confira os dígitos</span>
+        </div>
+        <div>
+          <label class="block text-slate-300 font-semibold mb-1">Anexar Arquivo do Boleto (PDF / Imagem, máx. 5 MB)</label>
+          <input id="inputNewAttachment" type="file" accept=".pdf,image/*" class="w-full text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-600 file:text-white hover:file:bg-indigo-500" />
+        </div>
+        <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
+          <button id="btnCancelNewModal" type="button" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium">Cancelar</button>
+          <button type="submit" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold">Salvar na Planilha</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL 4: BAIXAR APLICATIVO & DISTRIBUIÇÃO GITHUB -->
+  <div id="appDownloadModalBackdrop" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-[#111827] border border-slate-700 rounded-2xl max-w-2xl w-full p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between pb-4 border-b border-slate-800">
+        <div class="flex items-center gap-2.5">
+          <div class="p-2 rounded-xl bg-violet-500/20 text-violet-300 border border-violet-500/30">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+          </div>
+          <div>
+            <h2 class="text-base font-bold text-white">Backup e instalação do Argon</h2>
+            <p class="text-xs text-slate-400">Instale o aplicativo ou faça backup local dos seus dados</p>
+          </div>
+        </div>
+        <button id="btnCloseAppDownloadModal" type="button" class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800">✕</button>
+      </div>
+
+      <div class="my-5 grid grid-cols-1 gap-3.5 text-xs">
+        <!-- Install as Desktop/Mobile PWA -->
+        <div class="p-4 rounded-xl bg-slate-900/90 border border-emerald-500/30 flex flex-col justify-between gap-3">
+          <div>
+            <span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono text-[10px] font-bold uppercase">PWA / App Nativo</span>
+            <h3 class="text-sm font-bold text-white mt-1.5">Instalar no Computador / Celular</h3>
+            <p class="text-slate-400 text-[11px] mt-1">Instala o Argon como aplicativo dedicado na Área de Trabalho ou Menu Iniciar (via navegador Chrome/Edge) com funcionamento offline.</p>
+          </div>
+          <button id="btnTriggerPwaInstall" type="button" class="w-full py-2 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold transition flex items-center justify-center gap-1.5">
+            <span>⚡ Instalar Aplicativo Agora</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Backup JSON / Import JSON for sharing data between users -->
+      <div class="p-4 rounded-xl bg-slate-900/80 border border-slate-800 mb-4 text-xs">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+          <div>
+            <h4 class="font-bold text-white">Backup &amp; Compartilhamento de Base (.json)</h4>
+            <p class="text-[11px] text-slate-400">Exporte ou restaure todos os fornecedores, XMLs e boletos cadastrados</p>
+            <p class="text-[11px] text-amber-300">Os arquivos anexados (XML, boleto, comprovante) ficam só neste navegador e não vão no backup.</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="btnExportDatabaseJson" type="button" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 font-semibold border border-slate-700 transition">
+              ⬇ Exportar Base (.json)
+            </button>
+            <label for="importDatabaseJsonInput" class="cursor-pointer px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-300 font-semibold border border-slate-700 transition">
+              ⬆ Importar Base (.json)
+              <input id="importDatabaseJsonInput" type="file" accept=".json,application/json" class="hidden" />
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end">
+        <button id="btnCloseAppDownloadModalBottom" type="button" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium text-slate-200">
+          Fechar
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATION CONTAINER -->
+  <div id="toastContainer" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none"></div>
+
+  <!-- APPLICATION SCRIPT -->
+  <script>
+    // --- INITIAL REALISTIC BRAZILIAN NF-E XML + BOLETO DATASET ---
+    // Reference Date defaults to 2026-11-17 so items due between 2026-11-17 and 2026-11-24 trigger the 1-week (<= 7 days) notification
+    const DEFAULT_RECORDS = [
+      {
+        id: 'bol-101',
+        supplier: 'Kalunga Comércio e Indústria Gráfica Ltda',
+        cnpj: '43.283.811/0001-50',
+        nfeNumber: '000482910',
+        parcela: '01/02',
+        issueDate: '2026-10-20',
+        dueDate: '2026-11-19', // 2 days from 2026-11-17 -> 1 WEEK ALERT!
+        amountCents: 248050,
+        status: 'PENDING',
+        xmlFileName: '3526104328381100015055001000482910100.xml',
+        boletoFileName: 'boleto_kalunga_nf482910_p1.pdf',
+        bank: '',
+        digitableLine: '34191.79001 01043.510047 91020.150008 8 99040000248050',
+        category: 'Suprimentos & TI'
+      },
+      {
+        id: 'bol-102',
+        supplier: 'Kabum Comércio Eletrônico S.A.',
+        cnpj: '05.570.714/0001-59',
+        nfeNumber: '001928374',
+        parcela: 'Única',
+        issueDate: '2026-10-22',
+        dueDate: '2026-11-21', // 4 days from 2026-11-17 -> 1 WEEK ALERT!
+        amountCents: 419000,
+        status: 'PENDING',
+        xmlFileName: '3526100557071400015955001001928374100.xml',
+        boletoFileName: 'boleto_kabum_nf1928374.pdf',
+        bank: '237-2 | Bradesco S.A.',
+        digitableLine: '23793.38128 60083.013528 56000.063305 1 99060000419000',
+        category: 'Hardware & Equipamentos'
+      },
+      {
+        id: 'bol-103',
+        supplier: 'Atacadão S.A. — Regional Ribeirão Preto',
+        cnpj: '75.315.333/0001-09',
+        nfeNumber: '000839102',
+        parcela: '01/01',
+        issueDate: '2026-10-24',
+        dueDate: '2026-11-24', // 7 days from 2026-11-17 -> 1 WEEK ALERT!
+        amountCents: 187590,
+        status: 'PENDING',
+        xmlFileName: '3526107531533300010955001000839102100.xml',
+        boletoFileName: 'boleto_atacadao_nf839102.pdf',
+        bank: '033-7 | Banco Santander',
+        digitableLine: '03399.85301 29700.001924 82341.101016 4 99090000187590',
+        category: 'Insumos Operacionais'
+      },
+      {
+        id: 'bol-104',
+        supplier: 'CPFL Paulista Companhia de Força e Luz',
+        cnpj: '33.050.196/0001-88',
+        nfeNumber: '009182731',
+        parcela: 'Mensal',
+        issueDate: '2026-10-15',
+        dueDate: '2026-11-14', // Overdue (-3 days)
+        amountCents: 96420,
+        status: 'PENDING',
+        xmlFileName: '3526103305019600018855001009182731100.xml',
+        boletoFileName: 'fatura_boleto_cpfl_nov2026.pdf',
+        bank: '001-9 | Banco do Brasil',
+        digitableLine: '00190.00009 03145.750004 01982.319178 9 98990000096420',
+        category: 'Utilidades & Energia'
+      },
+      {
+        id: 'bol-105',
+        supplier: 'Dell Computadores do Brasil Ltda',
+        cnpj: '72.381.189/0001-10',
+        nfeNumber: '000554120',
+        parcela: '02/03',
+        issueDate: '2026-11-01',
+        dueDate: '2026-12-02', // Upcoming (15 days)
+        amountCents: 635000,
+        status: 'PENDING',
+        xmlFileName: '4326117238118900011055001000554120100.xml',
+        boletoFileName: 'boleto_dell_nf554120_p2.pdf',
+        bank: '',
+        digitableLine: '34191.09008 44120.710293 04912.880001 3 99170000635000',
+        category: 'Infraestrutura TI'
+      },
+      {
+        id: 'bol-106',
+        supplier: 'Totvs S.A. — Licenciamento Corporativo',
+        cnpj: '53.113.791/0001-22',
+        nfeNumber: '000319044',
+        parcela: 'Mensal',
+        issueDate: '2026-10-10',
+        dueDate: '2026-11-10',
+        amountCents: 159000,
+        status: 'PAID',
+        xmlFileName: '3526105311379100012255001000319044100.xml',
+        boletoFileName: 'boleto_totvs_nf319044_quitado.pdf',
+        bank: '',
+        digitableLine: '34191.79001 01043.510047 91020.150008 8 98950000159000',
+        category: 'Software & ERP'
+      }
+    ];
+
+    // --- STATE MANAGEMENT ---
+    const state = {
+      records: [],
+      referenceDate: localDateISO(),
+      searchQuery: '',
+      supplierFilter: 'ALL',
+      statusFilter: 'ALL',
+      groupBy: 'NONE',
+      viewMode: 'SHEET', // 'SHEET' | 'CARDS'
+      density: 'COMFORTABLE', // 'COMPACT' | 'COMFORTABLE' | 'SPACIOUS'
+      sortField: 'dueDate',
+      sortAsc: true,
+      selectedRowId: 'bol-101',
+      activePreviewId: null,
+      pendingXmlFiles: [],
+      pendingBoletoFile: null,
+      pendingDanfeFile: null,
+      activePaymentRecordId: null,
+      history: [],
+      openBoletoUrls: []
+    };
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, character => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+      })[character]);
+    }
+
+    function localDateISO(date = new Date()) {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+
+    function amountToCents(value) {
+      const amount = Number(value);
+      if (!Number.isFinite(amount)) throw new Error('Valor inválido.');
+      const cents = Math.round(amount * 100);
+      if (!Number.isSafeInteger(cents) || cents < 0) throw new Error('Valor inválido.');
+      return cents;
+    }
+
+    const MAX_BOLETO_FILE_SIZE = 5 * 1024 * 1024;
+
+    function isBoletoFileWithinLimit(file) {
+      return Boolean(file && Number.isFinite(file.size) && file.size <= MAX_BOLETO_FILE_SIZE);
+    }
+
+    function validateDigitableLine(value) {
+      const digits = String(value || '').replace(/[.\s]/g, '');
+      const valid = /^\d{47}$|^\d{48}$/.test(digits);
+      return { valid, label: valid ? 'tamanho ok' : 'confira os dígitos' };
+    }
+
+    function openBoletoDatabase() {
+      return new Promise((resolve, reject) => {
+        if (!window.indexedDB) {
+          reject(new Error('IndexedDB não está disponível neste navegador.'));
+          return;
+        }
+        const request = window.indexedDB.open('argon_boletos_files_v1', 2);
+        request.onupgradeneeded = () => {
+          const db = request.result;
+          if (!db.objectStoreNames.contains('attachments')) {
+            db.createObjectStore('attachments', { keyPath: 'recordId' });
+          }
+          if (!db.objectStoreNames.contains('arquivos')) db.createObjectStore('arquivos', { keyPath: 'key' });
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error || new Error('Não foi possível abrir o armazenamento de anexos.'));
+        request.onblocked = () => reject(new Error('O armazenamento de anexos está ocupado por outra aba.'));
+      });
+    }
+
+    async function withBoletoAttachmentStore(mode, action) {
+      const db = await openBoletoDatabase();
+      return new Promise((resolve, reject) => {
+        let result;
+        let transaction;
+        try {
+          transaction = db.transaction('attachments', mode);
+          const request = action(transaction.objectStore('attachments'));
+          request.onsuccess = () => { result = request.result; };
+          request.onerror = () => reject(request.error || new Error('Falha ao acessar o arquivo do boleto.'));
+        } catch (error) {
+          db.close();
+          reject(error);
+          return;
+        }
+        transaction.oncomplete = () => { db.close(); resolve(result); };
+        transaction.onerror = () => { db.close(); reject(transaction.error || new Error('Falha ao salvar o arquivo do boleto.')); };
+        transaction.onabort = () => { db.close(); reject(transaction.error || new Error('Operação de anexo cancelada.')); };
+      });
+    }
+
+    function saveBoletoAttachment(recordId, file) {
+      if (!isBoletoFileWithinLimit(file)) return Promise.reject(new Error('O arquivo do boleto deve ter no máximo 5 MB.'));
+      return withBoletoAttachmentStore('readwrite', store => store.put({
+        recordId,
+        file,
+        fileName: file.name,
+        fileType: file.type || 'application/octet-stream'
+      }));
+    }
+
+    function getBoletoAttachment(recordId) {
+      return withBoletoAttachmentStore('readonly', store => store.get(recordId));
+    }
+
+    function deleteBoletoAttachment(recordId) {
+      return withBoletoAttachmentStore('readwrite', store => store.delete(recordId));
+    }
+
+    function withArquivosStore(mode, action) {
+      return openBoletoDatabase().then(db => new Promise((resolve, reject) => {
+        let result;
+        try {
+          const tx = db.transaction('arquivos', mode);
+          const request = action(tx.objectStore('arquivos'));
+          request.onsuccess = () => { result = request.result; };
+          request.onerror = () => reject(request.error || new Error('Falha ao acessar anexos.'));
+          tx.oncomplete = () => { db.close(); resolve(result); };
+          tx.onerror = () => { db.close(); reject(tx.error || new Error('Falha ao salvar anexos.')); };
+          tx.onabort = () => { db.close(); reject(tx.error || new Error('Operação de anexo cancelada.')); };
+        } catch (error) { db.close(); reject(error); }
+      }));
+    }
+
+    function saveArquivo(key, file, kind = '') {
+      if (!file || !Number.isFinite(file.size) || (kind !== 'xml' && file.size > MAX_BOLETO_FILE_SIZE)) return Promise.reject(new Error('O arquivo deve ter no máximo 5 MB.'));
+      return withArquivosStore('readwrite', store => store.put({ key, file, fileName: file.name || kind, fileType: file.type || 'application/octet-stream', kind }));
+    }
+
+    function getArquivo(key) {
+      if (!key) return Promise.resolve(null);
+      return withArquivosStore('readonly', store => store.get(key));
+    }
+
+    function buildPaymentHistoryEntry(record, payment) {
+      return {
+        id: `pag-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        recordId: record.id,
+        pagoEm: payment.pagoEm,
+        valorPagoCentavos: payment.valorPagoCentavos,
+        forma: payment.forma,
+        observacao: payment.observacao || '',
+        xmlKey: record.xmlKey || '',
+        boletoKey: record.boletoKey || '',
+        danfeKey: record.danfeKey || '',
+        comprovanteKey: payment.comprovanteKey || '',
+        estornado: false,
+        snapshot: {
+          fornecedor: record.supplier || '', cnpj: record.cnpj || '', nfeNumber: record.nfeNumber || '',
+          parcela: record.parcela || '', vencimento: record.dueDate || '',
+          valorOriginalCentavos: Number(record.amountCents) || 0
+        }
+      };
+    }
+
+    function getPaymentDifferenceCents(entry) {
+      return Number(entry.valorPagoCentavos) - Number(entry.snapshot.valorOriginalCentavos);
+    }
+
+    function getHistoryPeriodBounds(period, from, to, now = new Date()) {
+      if (period === 'custom') return { from: from || '', to: to || '' };
+      const year = now.getFullYear(), month = now.getMonth();
+      const start = period === 'last' ? new Date(year, month - 1, 1) : new Date(year, month, 1);
+      const end = period === 'last' ? new Date(year, month, 0) : new Date(year, month + 1, 0);
+      return { from: localDateISO(start), to: localDateISO(end) };
+    }
+
+    function filterHistoryEntries(entries, period, from, to, supplier, now = new Date()) {
+      const bounds = getHistoryPeriodBounds(period, from, to, now);
+      return entries.filter(entry => entry.pagoEm >= bounds.from && entry.pagoEm <= bounds.to &&
+        (!supplier || entry.snapshot.fornecedor === supplier));
+    }
+
+    function buildHistoryCsv(entries) {
+      const quote = value => `"${String(value ?? '').replace(/"/g, '""')}"`;
+      const money = cents => (Number(cents) / 100).toFixed(2).replace('.', ',');
+      const rows = [['Data pago','Fornecedor','CNPJ','NF-e','Parcela','Vencimento','Valor original (R$)','Valor pago (R$)','Diferença (R$)','Forma','Observação','Status']];
+      entries.forEach(entry => rows.push([entry.pagoEm, entry.snapshot.fornecedor, entry.snapshot.cnpj, entry.snapshot.nfeNumber,
+        entry.snapshot.parcela, entry.snapshot.vencimento, money(entry.snapshot.valorOriginalCentavos), money(entry.valorPagoCentavos),
+        money(getPaymentDifferenceCents(entry)), entry.forma, entry.observacao, entry.estornado ? 'ESTORNADO' : 'PAGO']));
+      return '\uFEFF' + rows.map(row => row.map(quote).join(';')).join('\r\n');
+    }
+
+    function paintDigitableStatus(element, value) {
+      const result = validateDigitableLine(value);
+      element.textContent = result.label;
+      element.className = `text-[10px] font-semibold ${result.valid ? 'text-emerald-400' : 'text-rose-300'}`;
+    }
+
+    async function openStoredBoleto(recordId) {
+      const previewWindow = window.open('about:blank', '_blank');
+      if (!previewWindow) {
+        showToast('Pré-visualização bloqueada', 'Permita a abertura de uma nova aba para visualizar o arquivo do boleto.', 'warning');
+        return;
+      }
+      previewWindow.opener = null;
+      try {
+        const record = state.records.find(item => item.id === recordId);
+        const attachment = (record && record.boletoKey ? await getArquivo(record.boletoKey) : null) || await getBoletoAttachment(recordId);
+        if (!attachment || !attachment.file) {
+          previewWindow.close();
+          showToast('Arquivo não encontrado', 'Este registro não tem um arquivo salvo no IndexedDB. Anexe novamente o boleto.', 'warning');
+          return;
+        }
+        const url = URL.createObjectURL(attachment.file);
+        state.openBoletoUrls.push(url);
+        previewWindow.location.replace(url);
+      } catch (error) {
+        previewWindow.close();
+        showToast('Falha ao abrir boleto', error.message || 'Não foi possível ler o arquivo anexado.', 'warning');
+      }
+    }
+
+    function migrateRecordsToCents(records) {
+      return records.map(record => {
+        const fileKey = String(record.xmlFileName || '').replace(/^NFe/, '').replace(/\.xml$/i, '');
+        const importKey = record.importKey || (/^\d{44}$/.test(fileKey) && record.parcela
+          ? createNfeDuplicateKey(fileKey, record.parcela)
+          : '');
+        if (Number.isSafeInteger(record.amountCents) && record.amountCents >= 0) {
+          const { amount, ...migratedRecord } = record;
+          return importKey ? { ...migratedRecord, importKey } : migratedRecord;
+        }
+        const { amount, ...migratedRecord } = record;
+        return { ...migratedRecord, ...(importKey ? { importKey } : {}), amountCents: amountToCents(amount) };
+      });
+    }
+
+    function createNfeDuplicateKey(accessKey, nDup) {
+      return `${String(accessKey || '').replace(/^NFe/, '')}|${String(nDup || '')}`;
+    }
+
+    function filterNewImportRecords(records, knownKeys) {
+      const newRecords = [];
+      let alreadyImported = 0;
+      records.forEach(record => {
+        if (knownKeys.has(record.importKey)) {
+          alreadyImported++;
+        } else {
+          knownKeys.add(record.importKey);
+          newRecords.push(record);
+        }
+      });
+      return { newRecords, alreadyImported };
+    }
+
+    function validateBackupRecords(payload) {
+      const records = Array.isArray(payload) ? payload : payload && payload.records;
+      if (!Array.isArray(records)) return { valid: false, error: 'O arquivo não contém uma lista de boletos.' };
+      const valid = records.every(record => record && typeof record === 'object' &&
+        typeof record.id === 'string' && record.id.length > 0 &&
+        typeof record.supplier === 'string' && record.supplier.trim().length > 0 &&
+        typeof record.dueDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(record.dueDate) &&
+        typeof record.status === 'string' && ['PENDING', 'PAID'].includes(record.status) &&
+        ((Number.isSafeInteger(record.amountCents) && record.amountCents >= 0) ||
+          (Number.isFinite(Number(record.amount)) && Number(record.amount) >= 0)));
+      return valid
+        ? { valid: true, records }
+        : { valid: false, error: 'O arquivo contém boletos com dados inválidos.' };
+    }
+
+    function savePreMigrationBackup(storage, serializedData) {
+      try {
+        storage.setItem('argon_backup_pre_migracao', serializedData);
+        return storage.getItem('argon_backup_pre_migracao') === serializedData;
+      } catch (e) {
+        return false;
+      }
+    }
+
+    function advanceChangeCount(storage) {
+      const current = Number.parseInt(storage.getItem('argon_change_count_v1') || '0', 10);
+      const next = (Number.isFinite(current) && current >= 0 ? current : 0) + 1;
+      storage.setItem('argon_change_count_v1', String(next));
+      return next % 10 === 0;
+    }
+
+    function loadInitialState() {
+      try {
+        const history = localStorage.getItem('argon_historico_v1');
+        try {
+          const parsedHistory = history ? JSON.parse(history) : [];
+          state.history = Array.isArray(parsedHistory) ? parsedHistory.filter(entry => entry && typeof entry === 'object' && entry.snapshot && typeof entry.snapshot === 'object') : [];
+        } catch (error) { state.history = []; }
+        const saved = localStorage.getItem('argon_boletos_xml_state_v1');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) {
+            const needsMigration = parsed.some(record => record.amount !== undefined || !Number.isSafeInteger(record.amountCents) || record.amountCents < 0);
+            if (needsMigration && !savePreMigrationBackup(localStorage, saved)) {
+              state.records = [];
+              showToast('Migração não realizada', 'Não foi possível guardar o backup pré-migração. Os dados originais continuam preservados no navegador.', 'warning');
+              return;
+            }
+            state.records = needsMigration ? migrateRecordsToCents(parsed) : parsed;
+            if (needsMigration) {
+              try {
+                localStorage.setItem('argon_boletos_xml_state_v1', JSON.stringify(state.records));
+              } catch (e) {
+                showToast('Backup pré-migração salvo', 'A conversão será gravada quando houver espaço disponível no navegador.', 'warning');
+              }
+            }
+            return;
+          }
+        }
+      } catch (e) {
+        // Ignore storage errors in sandboxed contexts
+      }
+      state.records = [];
+    }
+
+    function saveState() {
+      try {
+        localStorage.setItem('argon_boletos_xml_state_v1', JSON.stringify(state.records));
+        localStorage.setItem('argon_historico_v1', JSON.stringify(state.history));
+        if (advanceChangeCount(localStorage)) {
+          showToast('Baixe um backup', 'Você fez 10 alterações desde o último aviso. Baixe um backup para manter uma cópia dos seus boletos.', 'warning');
+        }
+      } catch (e) {
+        // Ignore storage errors
+      }
+    }
+
+    function saveHistory() {
+      try { localStorage.setItem('argon_historico_v1', JSON.stringify(state.history)); }
+      catch (e) { showToast('Histórico não salvo', 'O navegador não conseguiu gravar o histórico de pagamentos.', 'warning'); }
+    }
+
+    function beginPayment(recordId) {
+      const record = state.records.find(item => item.id === recordId);
+      if (!record) return;
+      state.activePaymentRecordId = record.id;
+      document.getElementById('paymentDate').value = localDateISO();
+      document.getElementById('paymentAmount').value = (Number(record.amountCents) / 100).toFixed(2);
+      document.getElementById('paymentMethod').value = 'Boleto';
+      document.getElementById('paymentNote').value = '';
+      document.getElementById('paymentProof').value = '';
+      const modal = document.getElementById('paymentModalBackdrop');
+      modal.classList.remove('hidden'); modal.classList.add('flex');
+    }
+
+    function undoPayment(recordId) {
+      const record = state.records.find(item => item.id === recordId);
+      if (!record || !window.confirm('Reabrir este boleto e estornar o pagamento no histórico?')) return;
+      const entry = [...state.history].reverse().find(item => item.recordId === recordId && !item.estornado);
+      if (entry) entry.estornado = true;
+      record.status = 'PENDING';
+      saveState(); renderAll();
+      showToast('Pagamento estornado', 'O registro continua no histórico e foi retirado do total pago.', 'info');
+    }
+
+    async function openHistoryAttachment(key, fileName) {
+      try {
+        const saved = await getArquivo(key);
+        if (!saved || !saved.file) { showToast('Anexo indisponível', 'O arquivo não foi encontrado neste navegador.', 'warning'); return; }
+        const url = URL.createObjectURL(saved.file);
+        state.openBoletoUrls.push(url);
+        const link = document.createElement('a'); link.href = url; link.download = fileName || saved.fileName || 'anexo';
+        document.body.appendChild(link); link.click(); link.remove();
+      } catch (error) { showToast('Anexo não disponível', 'Falha ao acessar os arquivos guardados neste navegador.', 'warning'); }
+    }
+
+    function renderPaymentHistory() {
+      const body = document.getElementById('historyTableBody');
+      if (!body) return;
+      const supplierSelect = document.getElementById('historySupplier');
+      const currentSupplier = supplierSelect.value;
+      const suppliers = [...new Set(state.history.map(entry => entry.snapshot && entry.snapshot.fornecedor).filter(Boolean))].sort();
+      supplierSelect.innerHTML = '<option value="">Todos</option>' + suppliers.map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
+      supplierSelect.value = suppliers.includes(currentSupplier) ? currentSupplier : '';
+      const period = document.getElementById('historyPeriod').value;
+      const filtered = filterHistoryEntries(state.history, period, document.getElementById('historyFrom').value, document.getElementById('historyTo').value, supplierSelect.value);
+      body.innerHTML = filtered.map(entry => {
+        const snap = entry.snapshot || {};
+        const difference = getPaymentDifferenceCents(entry);
+        const differenceLabel = difference > 0 ? `+${formatCurrencyBRL(difference)} juros/multa` : difference < 0 ? `${formatCurrencyBRL(difference)} desconto` : formatCurrencyBRL(0);
+        const fileButton = (key, label, name) => key ? `<button data-history-file="${escapeHtml(key)}" data-file-name="${escapeHtml(name || label)}" class="rounded bg-slate-800 px-2 py-1 text-[10px] text-sky-300">${label}</button>` : '';
+        const xml = entry.xmlKey ? fileButton(entry.xmlKey, 'NF-e (XML)', `nfe_${snap.nfeNumber || 'nota'}.xml`) : '<span class="text-amber-300">XML não disponível</span>';
+        const danfeKey = entry.danfeKey || '';
+        return `<tr class="border-t border-slate-800 ${entry.estornado ? 'line-through opacity-50' : ''}"><td class="p-3">${escapeHtml(formatDateBR(entry.pagoEm))}${entry.estornado ? ' · estornado' : ''}</td><td class="p-3">${escapeHtml(snap.fornecedor)}</td><td class="p-3">${escapeHtml(snap.nfeNumber)}</td><td class="p-3">${escapeHtml(snap.parcela)}</td><td class="p-3">${escapeHtml(formatCurrencyBRL(entry.valorPagoCentavos))}</td><td class="p-3">${escapeHtml(differenceLabel)}</td><td class="p-3"><div class="flex flex-wrap gap-1">${xml}${!entry.xmlKey ? `<label class="cursor-pointer rounded bg-slate-700 px-2 py-1 text-[10px]">Anexar XML<input type="file" accept=".xml,text/xml,application/xml" data-attach-xml="${escapeHtml(entry.id)}" class="hidden"></label>` : ''}${fileButton(entry.boletoKey, 'Boleto', `boleto_${snap.nfeNumber || ''}.pdf`)}${fileButton(entry.comprovanteKey, 'Comprovante', `comprovante_${snap.nfeNumber || ''}`)}${fileButton(danfeKey, 'DANFE', `danfe_${snap.nfeNumber || ''}.pdf`)}</div></td></tr>`;
+      }).join('') || '<tr><td colspan="7" class="p-5 text-center text-slate-500">Nenhum pagamento neste período.</td></tr>';
+      const total = filtered.filter(entry => !entry.estornado).reduce((sum, entry) => sum + Number(entry.valorPagoCentavos || 0), 0);
+      document.getElementById('historyPeriodTotal').textContent = `Total pago no período: ${formatCurrencyBRL(total)}`;
+      body.querySelectorAll('[data-history-file]').forEach(button => button.addEventListener('click', () => openHistoryAttachment(button.dataset.historyFile, button.dataset.fileName)));
+      body.querySelectorAll('[data-attach-xml]').forEach(input => input.addEventListener('change', async () => {
+        const file = input.files && input.files[0]; const entry = state.history.find(item => item.id === input.dataset.attachXml);
+        if (!file || !entry) return;
+        const key = entry.xmlKey || `historico-xml:${entry.id}`;
+        try { await saveArquivo(key, file, 'xml'); entry.xmlKey = key; saveHistory(); renderPaymentHistory(); }
+        catch (error) { showToast('Anexos não foram salvos', 'Não foi possível guardar o XML no navegador.', 'warning'); }
+      }));
+    }
+
+    // --- DATE & URGENCY CALCULATIONS (1-WEEK / 7-DAY NOTIFICATION ENGINE) ---
+    function getDaysDifference(dueDateStr, refDateStr) {
+      const [dy, dm, dd] = dueDateStr.split('-').map(Number);
+      const [ry, rm, rd] = refDateStr.split('-').map(Number);
+      const dueUTC = Date.UTC(dy, dm - 1, dd);
+      const refUTC = Date.UTC(ry, rm - 1, rd);
+      return Math.round((dueUTC - refUTC) / (1000 * 60 * 60 * 24));
+    }
+
+    function classifyRecordUrgency(record) {
+      if (record.status === 'PAID') {
+        return {
+          code: 'PAID',
+          label: 'Pago / Baixado',
+          shortBadge: '✓ Quitado',
+          daysDiff: getDaysDifference(record.dueDate, state.referenceDate),
+          badgeClass: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
+          rowClass: 'row-paid'
+        };
+      }
+      const diff = getDaysDifference(record.dueDate, state.referenceDate);
+      if (diff < 0) {
+        const absDays = Math.abs(diff);
+        return {
+          code: 'OVERDUE',
+          label: `Vencido há ${absDays} ${absDays === 1 ? 'dia' : 'dias'}`,
+          shortBadge: `🚨 Atrasado (${absDays}d)`,
+          daysDiff: diff,
+          badgeClass: 'bg-rose-500/20 text-rose-300 border-rose-500/40',
+          rowClass: 'row-overdue'
+        };
+      }
+      if (diff <= 7) {
+        const dayText = diff === 0 ? 'Vence HOJE!' : diff === 1 ? 'Vence AMANHÃ (1d)' : `Faltam ${diff} dias (≤ 1 sem)`;
+        return {
+          code: 'WEEK_ALERT',
+          label: dayText,
+          shortBadge: `🔔 ${dayText}`,
+          daysDiff: diff,
+          badgeClass: 'bg-amber-500/25 text-amber-200 border-amber-400/60 badge-pulse-week',
+          rowClass: 'row-week-alert'
+        };
+      }
+      return {
+        code: 'UPCOMING',
+        label: `Faltam ${diff} dias`,
+        shortBadge: `📅 Em ${diff} dias`,
+        daysDiff: diff,
+        badgeClass: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
+        rowClass: ''
+      };
+    }
+
+    function formatCurrencyBRL(val) {
+      const num = (Number(val) || 0) / 100;
+      return num.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    }
+
+    function formatDateBR(isoStr) {
+      if (!isoStr || !isoStr.includes('-')) return isoStr || '-';
+      const [y, m, d] = isoStr.split('-');
+      return `${d}/${m}/${y}`;
+    }
+
+    function getSupplierInitials(name) {
+      if (!name) return 'NF';
+      const parts = name.trim().split(/\s+/);
+      if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+
+    // --- TOAST NOTIFICATIONS ---
+    function showToast(title, subtitle, type = 'info') {
+      const container = document.getElementById('toastContainer');
+      if (!container) return;
+      const colors = {
+        info: 'border-indigo-500/50 bg-[#111827] text-indigo-200',
+        warning: 'border-amber-500/60 bg-[#181510] text-amber-200',
+        success: 'border-emerald-500/50 bg-[#0d1f1a] text-emerald-200'
+      };
+      const toast = document.createElement('div');
+      toast.className = `pointer-events-auto border rounded-xl p-3.5 shadow-2xl transition-all duration-300 flex items-start justify-between gap-3 ${colors[type] || colors.info}`;
+      toast.innerHTML = `
+        <div class="text-xs">
+          <p class="font-bold text-white mb-0.5">${escapeHtml(title)}</p>
+          <p class="text-[11px] opacity-90 whitespace-pre-line">${escapeHtml(subtitle)}</p>
+        </div>
+        <button type="button" class="text-slate-400 hover:text-white text-xs px-1">✕</button>
+      `;
+      toast.querySelector('button').addEventListener('click', () => toast.remove());
+      container.appendChild(toast);
+      setTimeout(() => {
+        if (toast.parentNode) toast.remove();
+      }, 5000);
+    }
+
+    // --- CLIPBOARD HELPER ---
+    function copyTextToClipboard(text, label) {
+      const fallbackCopy = () => {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+          document.execCommand('copy');
+          showToast('Copiado para a área de transferência', `${label}: ${text}`, 'success');
+        } catch (err) {
+          showToast('Linha selecionada', text, 'info');
+        }
+        document.body.removeChild(ta);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+          showToast('Copiado para a área de transferência', `${label}: ${text}`, 'success');
+        }).catch(fallbackCopy);
+      } else {
+        fallbackCopy();
+      }
+    }
+
+    // --- SUPPLIER DROPDOWN POPULATION ---
+    function updateSupplierDropdown() {
+      const select = document.getElementById('supplierFilter');
+      if (!select) return;
+      const currentVal = state.supplierFilter;
+      const suppliers = Array.from(new Set(state.records.map(r => r.supplier))).sort();
+      select.replaceChildren(new Option(`Todos os Fornecedores (${suppliers.length})`, 'ALL'));
+      suppliers.forEach(sup => {
+        const opt = document.createElement('option');
+        opt.value = sup;
+        opt.textContent = sup;
+        select.appendChild(opt);
+      });
+      if (suppliers.includes(currentVal)) {
+        select.value = currentVal;
+      } else {
+        state.supplierFilter = 'ALL';
+        select.value = 'ALL';
+      }
+    }
+
+    // --- FILTER & SORT LOGIC ---
+    function getFilteredAndSortedRecords() {
+      const q = state.searchQuery.trim().toLowerCase();
+      const filtered = state.records.filter(rec => {
+        const urgency = classifyRecordUrgency(rec);
+        if (state.supplierFilter !== 'ALL' && rec.supplier !== state.supplierFilter) {
+          return false;
+        }
+        if (state.statusFilter !== 'ALL' && urgency.code !== state.statusFilter) {
+          return false;
+        }
+        if (q) {
+          const hay = `${rec.supplier} ${rec.cnpj} ${rec.nfeNumber} ${rec.parcela} ${(Number(rec.amountCents) / 100).toFixed(2)} ${rec.digitableLine} ${rec.xmlFileName} ${rec.boletoFileName}`.toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      });
+
+      filtered.sort((a, b) => {
+        let cmp = 0;
+        if (state.sortField === 'supplier') {
+          cmp = a.supplier.localeCompare(b.supplier, 'pt-BR');
+        } else if (state.sortField === 'amount') {
+          cmp = (Number(a.amountCents) || 0) - (Number(b.amountCents) || 0);
+        } else {
+          cmp = a.dueDate.localeCompare(b.dueDate);
+        }
+        return state.sortAsc ? cmp : -cmp;
+      });
+
+      return filtered;
+    }
+
+    // --- RENDER ALL UI COMPONENTS ---
+    function renderAll() {
+      updateSupplierDropdown();
+      renderKpisAndBanner();
+      renderSpreadsheetTable();
+      renderKanbanBoard();
+      renderAlertsDrawer();
+      renderPaymentHistory();
+    }
+
+    function renderKpisAndBanner() {
+      let weekTotal = 0, weekCount = 0;
+      let overdueTotal = 0, overdueCount = 0;
+      let upcomingTotal = 0, upcomingCount = 0;
+      let paidTotal = 0, paidCount = 0;
+      let attachedBothCount = 0;
+      const weekSuppliers = [];
+
+      state.records.forEach(rec => {
+        const u = classifyRecordUrgency(rec);
+        const val = Number(rec.amountCents) || 0;
+        if (rec.xmlFileName && rec.boletoFileName) attachedBothCount++;
+
+        if (u.code === 'WEEK_ALERT') {
+          weekTotal += val;
+          weekCount++;
+          weekSuppliers.push(`${rec.supplier.split(' ')[0]} (${formatDateBR(rec.dueDate)})`);
+        } else if (u.code === 'OVERDUE') {
+          overdueTotal += val;
+          overdueCount++;
+        } else if (u.code === 'UPCOMING') {
+          upcomingTotal += val;
+          upcomingCount++;
+        } else if (u.code === 'PAID') {
+          paidTotal += val;
+          paidCount++;
+        }
+      });
+
+      document.getElementById('kpiWeekTotal').textContent = formatCurrencyBRL(weekTotal);
+      document.getElementById('kpiWeekCount').textContent = `${weekCount} ${weekCount === 1 ? 'boleto vence' : 'boletos vencem'} em ≤ 7d`;
+
+      document.getElementById('kpiOverdueTotal').textContent = formatCurrencyBRL(overdueTotal);
+      document.getElementById('kpiOverdueCount').textContent = `${overdueCount} em atraso`;
+
+      document.getElementById('kpiUpcomingTotal').textContent = formatCurrencyBRL(upcomingTotal);
+      document.getElementById('kpiUpcomingCount').textContent = `${upcomingCount} para > 7 dias`;
+
+      document.getElementById('kpiPaidTotal').textContent = formatCurrencyBRL(paidTotal);
+      document.getElementById('kpiPaidCount').textContent = `${paidCount} liquidado(s)`;
+
+      const rate = state.records.length ? Math.round((attachedBothCount / state.records.length) * 100) : 100;
+      document.getElementById('kpiAttachmentRate').textContent = `${rate}%`;
+      document.getElementById('kpiXmlLinkedCount').textContent = `${attachedBothCount}/${state.records.length} com XML + Boleto`;
+
+      document.getElementById('headerAlertCount').textContent = String(weekCount);
+
+      // Update Top 1-Week Notification Banner
+      const bannerText = document.getElementById('weekAlertBannerText');
+      const resetBtn = document.getElementById('btnResetFiltersTop');
+      if (state.statusFilter !== 'ALL' || state.supplierFilter !== 'ALL' || state.searchQuery) {
+        resetBtn.classList.remove('hidden');
+      } else {
+        resetBtn.classList.add('hidden');
+      }
+
+      if (weekCount > 0) {
+          bannerText.innerHTML = `<strong>Notificação de 1 Semana Ativa:</strong> Você possui <strong>${weekCount} boleto(s)</strong> (${formatCurrencyBRL(weekTotal)}) vencendo nos próximos 7 dias — Fornecedores: <span class="underline decoration-amber-400/60">${escapeHtml(weekSuppliers.join(', '))}</span>.`;
+      } else {
+        bannerText.innerHTML = `<strong>Radar de 1 Semana Limpo:</strong> Nenhum boleto pendente vence nos próximos 7 dias a partir de ${formatDateBR(state.referenceDate)}.`;
+      }
+    }
+
+    function getDensityPadding() {
+      if (state.density === 'COMPACT') return 'py-1.5 px-3';
+      if (state.density === 'SPACIOUS') return 'py-4 px-3.5';
+      return 'py-2.5 px-3.5';
+    }
+
+    function renderSpreadsheetTable() {
+      const tbody = document.getElementById('sheetTableBody');
+      if (!tbody) return;
+      const rows = getFilteredAndSortedRecords();
+      const pad = getDensityPadding();
+
+      tbody.innerHTML = '';
+
+      if (rows.length === 0) {
+        const emptyTr = document.createElement('tr');
+        emptyTr.innerHTML = `
+          <td colspan="8" class="py-12 text-center text-slate-400">
+            Nenhum boleto encontrado para os filtros selecionados. Clique em <strong>Mostrar Todos</strong> ou importe um novo XML.
+          </td>
+        `;
+        tbody.appendChild(emptyTr);
+      } else {
+        let lastGroupKey = null;
+
+        rows.forEach((rec, idx) => {
+          const urgency = classifyRecordUrgency(rec);
+
+          // Optional Group Header Row
+          if (state.groupBy !== 'NONE') {
+            const groupKey = state.groupBy === 'SUPPLIER' ? rec.supplier : urgency.code;
+            const groupTitle = state.groupBy === 'SUPPLIER'
+              ? `Fornecedor: ${escapeHtml(rec.supplier)} (${escapeHtml(rec.cnpj)})`
+              : `Janela de Vencimento: ${urgency.shortBadge}`;
+
+            if (groupKey !== lastGroupKey) {
+              lastGroupKey = groupKey;
+              const groupTr = document.createElement('tr');
+              groupTr.className = 'bg-slate-900/95 text-indigo-300 font-bold text-xs';
+              groupTr.innerHTML = `
+                <td colspan="8" class="py-2 px-4 border-b border-slate-800">
+                  ${groupTitle}
+                </td>
+              `;
+              tbody.appendChild(groupTr);
+            }
+          }
+
+          const tr = document.createElement('tr');
+          const isSelected = state.selectedRowId === rec.id;
+          tr.className = `sheet-row ${urgency.rowClass} ${isSelected ? 'row-selected' : ''}`;
+
+          tr.innerHTML = `
+            <td class="${pad} text-center font-mono text-slate-500">${idx + 1}</td>
+
+            <!-- SUPPLIER CELL (INLINE EDITABLE) -->
+            <td class="${pad} cell-editable" data-col="A">
+              <div class="flex items-center gap-2.5">
+                <div class="w-8 h-8 rounded-lg bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 font-bold text-[11px] flex items-center justify-center shrink-0">
+                  ${escapeHtml(getSupplierInitials(rec.supplier))}
+                </div>
+                <div class="min-w-0 flex-1">
+                  <input
+                    type="text"
+                    value="${escapeHtml(rec.supplier)}"
+                    data-edit-id="${escapeHtml(rec.id)}"
+                    data-edit-field="supplier"
+                    class="w-full bg-transparent font-semibold text-white focus:outline-none truncate"
+                    title="Clique para editar o nome do fornecedor"
+                  />
+                  <div class="text-[11px] font-mono text-slate-400 truncate">${escapeHtml(rec.cnpj || 'CNPJ/CPF não informado')}</div>
+                </div>
+              </div>
+            </td>
+
+            <!-- DUE DATE & 1-WEEK NOTIFICATION BADGE (INLINE EDITABLE) -->
+            <td class="${pad} cell-editable" data-col="B">
+              <div class="flex flex-col gap-1">
+                <div class="flex items-center gap-1.5">
+                  <input
+                    type="date"
+                    value="${escapeHtml(rec.dueDate)}"
+                    data-edit-id="${escapeHtml(rec.id)}"
+                    data-edit-field="dueDate"
+                    class="bg-transparent font-mono font-bold text-slate-100 focus:outline-none cursor-pointer"
+                    title="Alterar data de vencimento"
+                  />
+                </div>
+                <div>
+                  <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${urgency.badgeClass}">
+                    ${urgency.shortBadge}
+                  </span>
+                </div>
+              </div>
+            </td>
+
+            <!-- AMOUNT CELL (INLINE EDITABLE) -->
+            <td class="${pad} cell-editable font-mono" data-col="C">
+              <div class="flex items-center gap-1">
+                <span class="text-slate-500">R$</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  value="${escapeHtml((Number(rec.amountCents) / 100).toFixed(2))}"
+                  data-edit-id="${escapeHtml(rec.id)}"
+                  data-edit-field="amount"
+                  class="w-24 bg-transparent font-bold text-white focus:outline-none"
+                  title="Clique para editar o valor do boleto"
+                />
+              </div>
+              <span class="text-[10px] text-slate-400">Parc. ${escapeHtml(rec.parcela || 'Única')}</span>
+            </td>
+
+            <!-- NF-e / XML ATTACHMENT BADGE -->
+            <td class="${pad}">
+              <button type="button" data-preview-id="${escapeHtml(rec.id)}" class="text-left group flex flex-col gap-0.5 p-1.5 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/25 transition w-full">
+                <div class="flex items-center gap-1.5">
+                  <span class="px-1.5 py-0.2 rounded bg-indigo-500/30 text-indigo-200 font-mono text-[10px] font-bold">XML NF-e</span>
+                  <span class="font-mono font-semibold text-slate-200 text-[11px]">#${escapeHtml(rec.nfeNumber)}</span>
+                </div>
+                <span class="text-[10px] font-mono text-slate-400 truncate max-w-[145px]" title="${escapeHtml(rec.xmlFileName)}">${escapeHtml(rec.xmlFileName)}</span>
+              </button>
+            </td>
+
+            <!-- BOLETO ATTACHMENT & BARCODE CELL -->
+            <td class="${pad}">
+              <div class="flex flex-col gap-1">
+                <div class="flex items-center gap-1.5">
+                  ${rec.boletoFileName
+                    ? `<button type="button" data-open-boleto="${escapeHtml(rec.id)}" class="flex items-center gap-1.5 px-2 py-1 rounded-md bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 font-medium text-[11px] transition truncate max-w-[165px]" title="Abrir Boleto Anexado: ${escapeHtml(rec.boletoFileName)}"><span>📎</span><span class="truncate font-mono">${escapeHtml(rec.boletoFileName)}</span></button>`
+                    : '<span class="text-[10px] text-slate-500">Sem anexo</span>'}
+                  <button type="button" data-copy-id="${escapeHtml(rec.id)}" class="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px]" title="Copiar Linha Digitável do Boleto: ${escapeHtml(rec.digitableLine)}">
+                    📋
+                  </button>
+                </div>
+                <span class="text-[10px] font-mono text-slate-400 truncate max-w-[195px]">${escapeHtml(rec.bank)}</span>
+              </div>
+            </td>
+
+            <!-- STATUS SELECTOR -->
+            <td class="${pad}">
+              <select data-status-id="${escapeHtml(rec.id)}" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold border focus:outline-none cursor-pointer ${
+                rec.status === 'PAID'
+                  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
+                  : 'bg-slate-900 text-slate-200 border-slate-700'
+              }">
+                <option value="PENDING" ${rec.status === 'PENDING' ? 'selected' : ''}>⏳ Em Aberto</option>
+                <option value="PAID" ${rec.status === 'PAID' ? 'selected' : ''}>✅ Pago / Baixado</option>
+              </select>
+            </td>
+
+            <!-- QUICK ACTIONS -->
+            <td class="${pad} text-right">
+              <div class="inline-flex items-center gap-1.5">
+                <button type="button" data-open-boleto="${escapeHtml(rec.id)}" class="px-2.5 py-1 rounded-md bg-indigo-600/25 hover:bg-indigo-600/40 text-indigo-200 border border-indigo-500/30 text-[11px] font-semibold transition">
+                  Ver Boleto
+                </button>
+                <button type="button" data-delete-id="${escapeHtml(rec.id)}" class="p-1.5 rounded-md bg-slate-800/80 hover:bg-rose-500/25 text-slate-400 hover:text-rose-300 transition" title="Remover linha">
+                  🗑
+                </button>
+              </div>
+            </td>
+          `;
+
+          // Row selection for Formula Bar feedback
+          tr.addEventListener('click', () => {
+            state.selectedRowId = rec.id;
+            const coord = document.getElementById('activeCellCoord');
+            const formula = document.getElementById('activeCellFormulaText');
+            if (coord && formula) {
+              coord.textContent = `LINHA ${idx + 1}`;
+              formula.textContent = `Fornecedor: ${rec.supplier} | Vencimento: ${formatDateBR(rec.dueDate)} (${urgency.label}) | Valor: ${formatCurrencyBRL(rec.amountCents)} | Anexo: ${rec.boletoFileName}`;
+            }
+          });
+
+          tbody.appendChild(tr);
+        });
+      }
+
+      // Bind inline edits and buttons inside tbody
+      tbody.querySelectorAll('[data-edit-id]').forEach(input => {
+        input.addEventListener('change', (e) => {
+          const id = e.target.getAttribute('data-edit-id');
+          const field = e.target.getAttribute('data-edit-field');
+          const rec = state.records.find(r => r.id === id);
+          if (!rec) return;
+          if (field === 'amount') {
+            const parsed = parseFloat(e.target.value);
+            if (!isNaN(parsed) && parsed >= 0) {
+              try {
+                rec.amountCents = amountToCents(parsed);
+              } catch (err) {
+                showToast('Valor inválido', 'Informe um valor que possa ser armazenado em centavos inteiros.', 'warning');
+                return;
+              }
+            }
+          } else {
+            rec[field] = e.target.value;
+          }
+          saveState();
+          renderAll();
+          showToast('Célula atualizada', `${rec.supplier} atualizado na planilha.`, 'info');
+        });
+      });
+
+      tbody.querySelectorAll('[data-status-id]').forEach(sel => {
+        sel.addEventListener('change', (e) => {
+          const id = e.target.getAttribute('data-status-id');
+          const rec = state.records.find(r => r.id === id);
+          if (!rec) return;
+          if (e.target.value === 'PAID') beginPayment(id); else undoPayment(id);
+          renderAll();
+        });
+      });
+
+      tbody.querySelectorAll('[data-preview-id]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          openBoletoPreviewModal(btn.getAttribute('data-preview-id'));
+        });
+      });
+
+      tbody.querySelectorAll('[data-open-boleto]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          openStoredBoleto(btn.getAttribute('data-open-boleto'));
+        });
+      });
+
+      tbody.querySelectorAll('[data-copy-id]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const rec = state.records.find(r => r.id === btn.getAttribute('data-copy-id'));
+          if (rec) copyTextToClipboard(rec.digitableLine, `Boleto ${rec.supplier}`);
+        });
+      });
+
+      tbody.querySelectorAll('[data-delete-id]').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const id = btn.getAttribute('data-delete-id');
+          const rec = state.records.find(r => r.id === id);
+          state.records = state.records.filter(r => r.id !== id);
+          saveState();
+          renderAll();
+          if (rec) showToast('Linha removida', `${rec.supplier} foi removido da planilha.`, 'info');
+        });
+      });
+
+      // Update Footer Totals
+      let weekSum = 0, openSum = 0, grandSum = 0;
+      rows.forEach(r => {
+        const val = Number(r.amountCents) || 0;
+        const u = classifyRecordUrgency(r);
+        grandSum += val;
+        if (r.status !== 'PAID') openSum += val;
+        if (u.code === 'WEEK_ALERT') weekSum += val;
+      });
+
+      document.getElementById('footerRowCount').textContent = String(rows.length);
+      document.getElementById('footerXmlCount').textContent = String(rows.filter(r => r.xmlFileName).length);
+      document.getElementById('footerBoletoCount').textContent = String(rows.filter(r => r.boletoFileName).length);
+      document.getElementById('footerWeekSum').textContent = formatCurrencyBRL(weekSum);
+      document.getElementById('footerOpenSum').textContent = formatCurrencyBRL(openSum);
+      document.getElementById('footerGrandSum').textContent = formatCurrencyBRL(grandSum);
+    }
+
+    function renderKanbanBoard() {
+      const cols = {
+        OVERDUE: document.getElementById('kanbanColOverdue'),
+        WEEK_ALERT: document.getElementById('kanbanColWeek'),
+        UPCOMING: document.getElementById('kanbanColUpcoming'),
+        PAID: document.getElementById('kanbanColPaid')
+      };
+      const counts = { OVERDUE: 0, WEEK_ALERT: 0, UPCOMING: 0, PAID: 0 };
+      Object.values(cols).forEach(c => { if (c) c.innerHTML = ''; });
+
+      const rows = getFilteredAndSortedRecords();
+      rows.forEach(rec => {
+        const u = classifyRecordUrgency(rec);
+        counts[u.code] = (counts[u.code] || 0) + 1;
+        const container = cols[u.code];
+        if (!container) return;
+
+        const card = document.createElement('div');
+        card.className = 'p-3 rounded-xl bg-slate-900/90 border border-slate-800 hover:border-indigo-500/40 transition flex flex-col gap-2';
+        card.innerHTML = `
+          <div class="flex items-start justify-between gap-2">
+            <span class="font-bold text-xs text-white leading-snug">${escapeHtml(rec.supplier)}</span>
+            <span class="font-mono text-xs font-bold text-indigo-300 shrink-0">${formatCurrencyBRL(rec.amountCents)}</span>
+          </div>
+          <div class="flex items-center justify-between text-[11px] text-slate-400 font-mono">
+            <span>Venc: <strong class="text-slate-200">${escapeHtml(formatDateBR(rec.dueDate))}</strong></span>
+            <span>NF-e #${escapeHtml(rec.nfeNumber)}</span>
+          </div>
+          <div class="flex items-center justify-between pt-1">
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold border ${u.badgeClass}">${u.shortBadge}</span>
+            <button type="button" data-kanban-open-boleto="${escapeHtml(rec.id)}" class="text-[11px] font-semibold text-indigo-400 hover:text-indigo-300">
+              📎 Boleto &amp; XML →
+            </button>
+            <button type="button" data-kanban-payment="${escapeHtml(rec.id)}" class="text-[11px] font-semibold text-emerald-300">${rec.status === 'PAID' ? 'Reabrir' : 'Dar baixa'}</button>
+          </div>
+        `;
+        card.querySelector('[data-kanban-open-boleto]').addEventListener('click', () => openStoredBoleto(rec.id));
+        card.querySelector('[data-kanban-payment]').addEventListener('click', () => rec.status === 'PAID' ? undoPayment(rec.id) : beginPayment(rec.id));
+        container.appendChild(card);
+      });
+
+      document.getElementById('kanbanCountOverdue').textContent = String(counts.OVERDUE);
+      document.getElementById('kanbanCountWeek').textContent = String(counts.WEEK_ALERT);
+      document.getElementById('kanbanCountUpcoming').textContent = String(counts.UPCOMING);
+      document.getElementById('kanbanCountPaid').textContent = String(counts.PAID);
+    }
+
+    function renderAlertsDrawer() {
+      const list = document.getElementById('alertsDrawerList');
+      if (!list) return;
+      list.innerHTML = '';
+
+      const alertItems = state.records
+        .map(r => ({ rec: r, urgency: classifyRecordUrgency(r) }))
+        .filter(item => item.urgency.code === 'WEEK_ALERT' || item.urgency.code === 'OVERDUE')
+        .sort((a, b) => a.urgency.daysDiff - b.urgency.daysDiff);
+
+      if (alertItems.length === 0) {
+        list.innerHTML = `
+          <div class="p-6 text-center text-xs text-slate-400 bg-slate-900/50 rounded-xl border border-slate-800">
+            🎉 Nenhum boleto pendente vence nos próximos 7 dias!
+          </div>
+        `;
+        return;
+      }
+
+      alertItems.forEach(({ rec, urgency }) => {
+        const item = document.createElement('div');
+        const isWeek = urgency.code === 'WEEK_ALERT';
+        item.className = `p-3.5 rounded-xl border ${
+          isWeek ? 'bg-amber-500/10 border-amber-500/40' : 'bg-rose-500/10 border-rose-500/40'
+        } flex flex-col gap-2`;
+        item.innerHTML = `
+          <div class="flex items-start justify-between gap-2">
+            <div>
+              <span class="inline-block px-2 py-0.5 rounded text-[10px] font-bold mb-1 ${
+                isWeek ? 'bg-amber-500 text-slate-950' : 'bg-rose-500 text-white'
+              }">${urgency.shortBadge}</span>
+              <h4 class="text-xs font-bold text-white">${escapeHtml(rec.supplier)}</h4>
+              <p class="text-[11px] text-slate-400 font-mono">CNPJ/CPF: ${escapeHtml(rec.cnpj)} • NF-e #${escapeHtml(rec.nfeNumber)}</p>
+            </div>
+            <div class="text-right font-mono">
+              <div class="text-sm font-bold text-white">${escapeHtml(formatCurrencyBRL(rec.amountCents))}</div>
+              <div class="text-[11px] text-amber-300">Venc: ${escapeHtml(formatDateBR(rec.dueDate))}</div>
+            </div>
+          </div>
+          <div class="flex items-center justify-between pt-2 border-t border-slate-800/80 text-[11px]">
+            <button type="button" data-drawer-open-boleto="${escapeHtml(rec.id)}" class="font-semibold text-indigo-300 hover:text-white">
+              📎 Abrir Boleto Anexo (${escapeHtml(rec.boletoFileName)})
+            </button>
+            <button type="button" data-drawer-pay="${escapeHtml(rec.id)}" class="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold">
+              Dar Baixa
+            </button>
+          </div>
+        `;
+        item.querySelector('[data-drawer-open-boleto]').addEventListener('click', () => {
+          document.getElementById('alertsDrawerBackdrop').classList.add('hidden');
+          openStoredBoleto(rec.id);
+        });
+        item.querySelector('[data-drawer-pay]').addEventListener('click', () => {
+          beginPayment(rec.id);
+        });
+        list.appendChild(item);
+      });
+    }
+
+    // --- BOLETO & XML PREVIEW MODAL ---
+    function openBoletoPreviewModal(recordId) {
+      const rec = state.records.find(r => r.id === recordId);
+      if (!rec) return;
+      state.activePreviewId = rec.id;
+
+      document.getElementById('previewModalNfeBadge').textContent = `NF-e #${rec.nfeNumber}`;
+      document.getElementById('previewModalSupplier').textContent = rec.supplier;
+      document.getElementById('boletoBankName').textContent = rec.bank || 'Banco não informado';
+      document.getElementById('boletoDigitableLine').textContent = rec.digitableLine;
+      document.getElementById('boletoBeneficiario').textContent = rec.supplier;
+      document.getElementById('boletoCnpj').textContent = `CNPJ/CPF: ${rec.cnpj}`;
+      document.getElementById('boletoVencimento').textContent = formatDateBR(rec.dueDate);
+      document.getElementById('boletoValor').textContent = formatCurrencyBRL(rec.amountCents);
+      document.getElementById('boletoDocNum').textContent = rec.nfeNumber;
+      document.getElementById('boletoParcela').textContent = rec.parcela;
+      document.getElementById('boletoAttachmentName').textContent = rec.boletoFileName;
+      document.getElementById('boletoXmlName').textContent = rec.xmlFileName;
+      paintDigitableStatus(document.getElementById('previewDigitableStatus'), rec.digitableLine);
+
+      const xmlSnippet = `<nfeProc versao="4.00" xmlns="http://www.portalfiscal.inf.br/nfe">
+  <NFe>
+    <infNFe Id="NFe${rec.nfeNumber}">
+      <ide>
+        <nNF>${rec.nfeNumber}</nNF>
+        <dhEmi>${rec.issueDate || '2026-11-01'}T10:30:00-03:00</dhEmi>
+      </ide>
+      <emit>
+        <${(rec.cnpj || '').replace(/\D/g, '').length === 11 ? 'CPF' : 'CNPJ'}>${(rec.cnpj || '').replace(/\D/g, '')}</${(rec.cnpj || '').replace(/\D/g, '').length === 11 ? 'CPF' : 'CNPJ'}>
+        <xNome>${rec.supplier}</xNome>
+      </emit>
+      <cobr>
+        <dup>
+          <nDup>${rec.parcela}</nDup>
+          <dVenc>${rec.dueDate}</dVenc>
+          <vDup>${(Number(rec.amountCents) / 100).toFixed(2)}</vDup>
+        </dup>
+      </cobr>
+    </infNFe>
+  </NFe>
+</nfeProc>`;
+      document.getElementById('previewXmlCode').textContent = xmlSnippet;
+
+      const payBtn = document.getElementById('btnTogglePaidFromModal');
+      if (rec.status === 'PAID') {
+        payBtn.textContent = '↩ Reabrir Boleto (Marcar Pendente)';
+        payBtn.className = 'px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-xs font-semibold text-white transition';
+      } else {
+        payBtn.textContent = '✓ Marcar Boleto como Pago';
+        payBtn.className = 'px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white transition';
+      }
+
+      document.getElementById('boletoPreviewModalBackdrop').classList.remove('hidden');
+    }
+
+    // --- REAL BRAZILIAN NF-E XML PARSER ---
+    function parseNfeXmlString(xmlString, xmlFileName = 'nfe_importada.xml', attachedBoletoName = '') {
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(xmlString, 'text/xml');
+      const parserError = xmlDoc.querySelector('parsererror');
+      if (parserError) {
+        throw new Error('Arquivo XML inválido ou mal formatado.');
+      }
+
+      const getTagText = (parent, tagName) => {
+        if (!parent) return '';
+        const el = parent.getElementsByTagName(tagName)[0];
+        return el ? el.textContent.trim() : '';
+      };
+
+      const emit = xmlDoc.getElementsByTagName('emit')[0];
+      const ide = xmlDoc.getElementsByTagName('ide')[0];
+      const infNfe = xmlDoc.getElementsByTagName('infNFe')[0];
+
+      const supplierName = getTagText(emit, 'xNome');
+      const rawTaxId = getTagText(emit, 'CNPJ') || getTagText(emit, 'CPF');
+      const formattedTaxId = rawTaxId.length === 14
+        ? `${rawTaxId.slice(0,2)}.${rawTaxId.slice(2,5)}.${rawTaxId.slice(5,8)}/${rawTaxId.slice(8,12)}-${rawTaxId.slice(12,14)}`
+        : rawTaxId.length === 11
+          ? `${rawTaxId.slice(0,3)}.${rawTaxId.slice(3,6)}.${rawTaxId.slice(6,9)}-${rawTaxId.slice(9,11)}`
+          : '';
+      const nfeNumber = getTagText(ide, 'nNF');
+      const dhEmi = (getTagText(ide, 'dhEmi') || getTagText(ide, 'dEmi') || '').slice(0, 10);
+      const required = (value, field) => {
+        if (!value) throw new Error(`Campo obrigatório ausente: ${field}`);
+        return value;
+      };
+      required(supplierName, 'emitente');
+      required(nfeNumber, 'número da NF');
+      required(formattedTaxId, 'CNPJ ou CPF do emitente');
+      const accessKeyId = infNfe ? infNfe.getAttribute('Id') : '';
+      const nfeKey = String(accessKeyId || '').replace(/^NFe/, '') || `${rawTaxId}${nfeNumber}`;
+      const xmlKey = nfeKey;
+
+      // Extract all <dup> (duplicatas / boletos) inside <cobr>
+      const dups = Array.from(xmlDoc.getElementsByTagName('dup'));
+      const createdRecords = [];
+
+      if (dups.length > 0) {
+        dups.forEach((dup, idx) => {
+          const nDup = required(getTagText(dup, 'nDup'), 'número da duplicata (nDup)');
+          const dVenc = required(getTagText(dup, 'dVenc'), 'vencimento da duplicata (dVenc)');
+          const rawAmount = required(getTagText(dup, 'vDup'), 'valor da duplicata (vDup)');
+          const vDup = Number(rawAmount);
+          const vDupCents = Math.round(vDup * 100);
+          if (!Number.isFinite(vDup) || vDup <= 0 || !Number.isSafeInteger(vDupCents)) throw new Error('Campo inválido: valor da duplicata (vDup)');
+          const boletoFile = attachedBoletoName || '';
+
+          createdRecords.push({
+            id: 'bol-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+            importKey: createNfeDuplicateKey(nfeKey, nDup),
+            xmlKey,
+            danfeKey: '',
+            supplier: supplierName,
+            cnpj: formattedTaxId,
+            nfeNumber: nfeNumber,
+            parcela: `${nDup}`,
+            issueDate: dhEmi,
+            dueDate: dVenc,
+            amountCents: vDupCents,
+            status: 'PENDING',
+            xmlFileName: xmlFileName,
+            boletoFileName: boletoFile,
+            bank: '',
+            digitableLine: '',
+            category: 'Importado via XML'
+          });
+        });
+      } else {
+        throw new Error('Campo ausente: duplicata com vencimento (dVenc) e valor (vDup)');
+      }
+
+      return createdRecords;
+    }
+
+    // Generate a realistic sample NF-e XML string with a due date within 1 week (<= 7 days)
+    function generateSampleNfeXml() {
+      const [ry, rm, rd] = state.referenceDate.split('-').map(Number);
+      const due1 = new Date(Date.UTC(ry, rm - 1, rd + 3)).toISOString().slice(0, 10); // +3 days (triggers 1-week alert!)
+      const due2 = new Date(Date.UTC(ry, rm - 1, rd + 6)).toISOString().slice(0, 10); // +6 days (triggers 1-week alert!)
+      const nfeNum = String(Math.floor(500000 + Math.random() * 400000));
+
+      return `<?xml version="1.0" encoding="UTF-8"?>
+<nfeProc versao="4.00" xmlns="http://www.portalfiscal.inf.br/nfe">
+  <NFe>
+    <infNFe Id="NFe352611${nfeNum}">
+      <ide>
+        <cUF>35</cUF>
+        <natOp>VENDA DE MERCADORIA</natOp>
+        <mod>55</mod>
+        <nNF>${nfeNum}</nNF>
+        <dhEmi>${state.referenceDate}T09:15:00-03:00</dhEmi>
+      </ide>
+      <emit>
+        <CNPJ>60872504000123</CNPJ>
+        <xNome>Pichau Informática e Logística Sul Ltda</xNome>
+        <xFant>Pichau Pro</xFant>
+      </emit>
+      <total>
+        <ICMSTot>
+          <vNF>3680.00</vNF>
+        </ICMSTot>
+      </total>
+      <cobr>
+        <fat>
+          <nFat>${nfeNum}</nFat>
+          <vOrig>3680.00</vOrig>
+          <vLiq>3680.00</vLiq>
+        </fat>
+        <dup>
+          <nDup>001/002</nDup>
+          <dVenc>${due1}</dVenc>
+          <vDup>1840.00</vDup>
+        </dup>
+        <dup>
+          <nDup>002/002</nDup>
+          <dVenc>${due2}</dVenc>
+          <vDup>1840.00</vDup>
+        </dup>
+      </cobr>
+    </infNFe>
+  </NFe>
+</nfeProc>`;
+    }
+
+    // --- EXPORT TO EXCEL-COMPATIBLE CSV ---
+    function exportToExcelCsv() {
+      const rows = getFilteredAndSortedRecords();
+      const headers = [
+        'Fornecedor',
+        'CNPJ',
+        'NF-e Numero',
+        'Parcela',
+        'Data Vencimento',
+        'Dias ate Vencimento',
+        'Alerta 1 Semana',
+        'Valor (R$)',
+        'Status',
+        'Arquivo XML Anexo',
+        'Arquivo Boleto Anexo',
+        'Linha Digitavel'
+      ];
+      const csvLines = [headers.join(';')];
+
+      rows.forEach(r => {
+        const u = classifyRecordUrgency(r);
+        const isWeekAlert = u.code === 'WEEK_ALERT' ? 'SIM (<= 7 DIAS)' : 'NAO';
+        const line = [
+          `"${(r.supplier || '').replace(/"/g, '""')}"`,
+          `"${r.cnpj || ''}"`,
+          `"${r.nfeNumber || ''}"`,
+          `"${r.parcela || ''}"`,
+          formatDateBR(r.dueDate),
+          u.daysDiff,
+          isWeekAlert,
+          String((Number(r.amountCents || 0) / 100).toFixed(2)).replace('.', ','),
+          r.status === 'PAID' ? 'PAGO' : 'PENDENTE',
+          `"${r.xmlFileName || ''}"`,
+          `"${r.boletoFileName || ''}"`,
+          `"${r.digitableLine || ''}"`
+        ];
+        csvLines.push(line.join(';'));
+      });
+
+      const blob = new Blob(['\uFEFF' + csvLines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `argon_boletos_xml_${state.referenceDate}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('Planilha exportada com sucesso', 'Arquivo CSV compatível com Microsoft Excel gerado.', 'success');
+    }
+
+    // --- EVENT LISTENERS INITIALIZATION ---
+    window.addEventListener('DOMContentLoaded', () => {
+      try {
+        ['argon_users_v1', 'argon_current_user_v1', 'argon_audit_logs_v1'].forEach(key => localStorage.removeItem(key));
+      } catch (e) {
+        // Keep the app usable when browser storage is restricted.
+      }
+      state.referenceDate = localDateISO();
+      document.getElementById('refDateInput').value = state.referenceDate;
+      loadInitialState();
+      renderAll();
+
+      // Trigger initial 1-week notification toast on startup
+      const initialWeekCount = state.records.filter(r => classifyRecordUrgency(r).code === 'WEEK_ALERT').length;
+      if (initialWeekCount > 0) {
+        setTimeout(() => {
+          showToast(
+            `🔔 Alerta de 1 Semana: ${initialWeekCount} boleto(s) próximos`,
+            'Existem boletos com vencimento nos próximos 7 dias destacados em âmbar na planilha.',
+            'warning'
+          );
+        }, 400);
+      }
+
+      // Reference Date Change
+      document.getElementById('refDateInput').addEventListener('change', (e) => {
+        if (e.target.value) {
+          state.referenceDate = e.target.value;
+          renderAll();
+          showToast('Data base recalculada', `Alertas de 7 dias atualizados para ${formatDateBR(state.referenceDate)}.`, 'info');
+        }
+      });
+
+      document.getElementById('btnReferenceDateToday').addEventListener('click', () => {
+        state.referenceDate = localDateISO();
+        document.getElementById('refDateInput').value = state.referenceDate;
+        renderAll();
+      });
+
+      // Search & Filters
+      document.getElementById('searchInput').addEventListener('input', (e) => {
+        state.searchQuery = e.target.value;
+        renderAll();
+      });
+
+      document.getElementById('supplierFilter').addEventListener('change', (e) => {
+        state.supplierFilter = e.target.value;
+        renderAll();
+      });
+
+      document.getElementById('statusFilter').addEventListener('change', (e) => {
+        state.statusFilter = e.target.value;
+        renderAll();
+      });
+
+      document.getElementById('groupBySelect').addEventListener('change', (e) => {
+        state.groupBy = e.target.value;
+        renderAll();
+      });
+
+      // Banner Quick Filter Buttons
+      document.getElementById('btnFilterWeekNow').addEventListener('click', () => {
+        state.statusFilter = 'WEEK_ALERT';
+        document.getElementById('statusFilter').value = 'WEEK_ALERT';
+        renderAll();
+      });
+
+      document.getElementById('btnResetFiltersTop').addEventListener('click', () => {
+        state.statusFilter = 'ALL';
+        state.supplierFilter = 'ALL';
+        state.searchQuery = '';
+        document.getElementById('statusFilter').value = 'ALL';
+        document.getElementById('supplierFilter').value = 'ALL';
+        document.getElementById('searchInput').value = '';
+        renderAll();
+      });
+
+      // KPI Cards Quick Filter Clicks
+      document.getElementById('kpiCardWeek').addEventListener('click', () => {
+        state.statusFilter = 'WEEK_ALERT';
+        document.getElementById('statusFilter').value = 'WEEK_ALERT';
+        renderAll();
+      });
+      document.getElementById('kpiCardOverdue').addEventListener('click', () => {
+        state.statusFilter = 'OVERDUE';
+        document.getElementById('statusFilter').value = 'OVERDUE';
+        renderAll();
+      });
+      document.getElementById('kpiCardUpcoming').addEventListener('click', () => {
+        state.statusFilter = 'UPCOMING';
+        document.getElementById('statusFilter').value = 'UPCOMING';
+        renderAll();
+      });
+      document.getElementById('kpiCardPaid').addEventListener('click', () => {
+        state.statusFilter = 'PAID';
+        document.getElementById('statusFilter').value = 'PAID';
+        renderAll();
+      });
+      document.getElementById('kpiCardAll').addEventListener('click', () => {
+        state.statusFilter = 'ALL';
+        document.getElementById('statusFilter').value = 'ALL';
+        renderAll();
+      });
+
+      // Column Sorting
+      document.querySelectorAll('[data-sort]').forEach(th => {
+        th.addEventListener('click', () => {
+          const field = th.getAttribute('data-sort');
+          if (state.sortField === field) {
+            state.sortAsc = !state.sortAsc;
+          } else {
+            state.sortField = field;
+            state.sortAsc = true;
+          }
+          renderAll();
+        });
+      });
+
+      // View Switcher (Spreadsheet vs Kanban Cards)
+      const viewBtnSheet = document.getElementById('viewBtnSheet');
+      const viewBtnCards = document.getElementById('viewBtnCards');
+      viewBtnSheet.addEventListener('click', () => {
+        state.viewMode = 'SHEET';
+        document.getElementById('sheetViewContainer').classList.remove('hidden');
+        document.getElementById('cardsViewContainer').classList.add('hidden');
+        document.getElementById('historyViewContainer').classList.add('hidden');
+        document.getElementById('historyViewContainer').classList.remove('flex');
+        viewBtnSheet.className = 'px-3 py-1 rounded-md text-xs font-semibold bg-indigo-600 text-white transition flex items-center gap-1.5';
+        viewBtnCards.className = 'px-3 py-1 rounded-md text-xs font-medium text-slate-400 hover:text-slate-200 transition flex items-center gap-1.5';
+      });
+      viewBtnCards.addEventListener('click', () => {
+        state.viewMode = 'CARDS';
+        document.getElementById('sheetViewContainer').classList.add('hidden');
+        document.getElementById('cardsViewContainer').classList.remove('hidden');
+        document.getElementById('historyViewContainer').classList.add('hidden');
+        document.getElementById('historyViewContainer').classList.remove('flex');
+        viewBtnCards.className = 'px-3 py-1 rounded-md text-xs font-semibold bg-indigo-600 text-white transition flex items-center gap-1.5';
+        viewBtnSheet.className = 'px-3 py-1 rounded-md text-xs font-medium text-slate-400 hover:text-slate-200 transition flex items-center gap-1.5';
+      });
+      document.getElementById('viewBtnHistory').addEventListener('click', () => {
+        state.viewMode = 'HISTORY';
+        document.getElementById('sheetViewContainer').classList.add('hidden');
+        document.getElementById('cardsViewContainer').classList.add('hidden');
+        document.getElementById('historyViewContainer').classList.remove('hidden');
+        document.getElementById('historyViewContainer').classList.add('flex');
+      });
+
+      // Density Toggle
+      document.getElementById('btnToggleDensity').addEventListener('click', () => {
+        const order = ['COMPACT', 'COMFORTABLE', 'SPACIOUS'];
+        const labels = { COMPACT: 'Compacta', COMFORTABLE: 'Confortável', SPACIOUS: 'Expandida' };
+        const nextIdx = (order.indexOf(state.density) + 1) % order.length;
+        state.density = order[nextIdx];
+        document.getElementById('densityLabel').textContent = labels[state.density];
+        renderSpreadsheetTable();
+      });
+
+      // Export CSV
+      document.getElementById('btnExportCsv').addEventListener('click', exportToExcelCsv);
+
+      // Local Backup & PWA Install Controls
+      let deferredPwaPrompt = null;
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredPwaPrompt = e;
+      });
+
+      const appDownloadModal = document.getElementById('appDownloadModalBackdrop');
+      document.getElementById('btnOpenAppDownloadModal').addEventListener('click', () => {
+        appDownloadModal.classList.remove('hidden');
+      });
+      document.getElementById('btnCloseAppDownloadModal').addEventListener('click', () => {
+        appDownloadModal.classList.add('hidden');
+      });
+      document.getElementById('btnCloseAppDownloadModalBottom').addEventListener('click', () => {
+        appDownloadModal.classList.add('hidden');
+      });
+
+      document.getElementById('btnTriggerPwaInstall').addEventListener('click', async () => {
+        if (deferredPwaPrompt) {
+          deferredPwaPrompt.prompt();
+          await deferredPwaPrompt.userChoice;
+          deferredPwaPrompt = null;
+        } else {
+          showToast(
+            'Instalação Rápida do Aplicativo',
+            'No navegador (Chrome/Edge), clique no ícone "Instalar Argon" na barra de endereços ou consulte as opções de instalação do navegador.',
+            'info'
+          );
+        }
+      });
+
+      document.getElementById('btnExportDatabaseJson').addEventListener('click', () => {
+        const payload = JSON.stringify({ exportedAt: new Date().toISOString(), records: state.records, history: state.history }, null, 2);
+        const blob = new Blob([payload], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `argon_backup_${state.referenceDate}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast('Base JSON exportada', 'Backup completo salvo para compartilhar ou restaurar.', 'success');
+      });
+
+      document.getElementById('importDatabaseJsonInput').addEventListener('change', async (e) => {
+        const file = (e.target.files || [])[0];
+        if (!file) return;
+        try {
+          const text = await file.text();
+          const parsed = JSON.parse(text);
+          const validation = validateBackupRecords(parsed);
+          if (!validation.valid) {
+            showToast('Backup recusado', validation.error, 'warning');
+            e.target.value = '';
+            return;
+          }
+          if (!window.confirm(`Restaurar ${validation.records.length} boleto(s)? Os registros atuais serão substituídos.`)) {
+            e.target.value = '';
+            return;
+          }
+
+          const requiresMigration = validation.records.some(record => record.amount !== undefined || !Number.isSafeInteger(record.amountCents) || record.amountCents < 0);
+          const currentStoredRecords = localStorage.getItem('argon_boletos_xml_state_v1') || '[]';
+          if (requiresMigration && !savePreMigrationBackup(localStorage, currentStoredRecords)) {
+            showToast('Restauração cancelada', 'Não foi possível guardar a cópia pré-migração no navegador.', 'warning');
+            e.target.value = '';
+            return;
+          }
+          state.records = migrateRecordsToCents(validation.records);
+          state.history = Array.isArray(parsed.history)
+            ? parsed.history.filter(entry => entry && typeof entry === 'object' && entry.snapshot && typeof entry.snapshot === 'object')
+            : [];
+          saveState();
+          renderAll();
+          appDownloadModal.classList.add('hidden');
+          showToast('Base restaurada com sucesso', `${state.records.length} boletos carregados no aplicativo.`, 'success');
+        } catch (err) {
+          showToast('Arquivo JSON inválido', err.message || 'Selecione um backup JSON exportado pelo Argon.', 'warning');
+        } finally {
+          e.target.value = '';
+        }
+      });
+
+      // Alerts Drawer Toggle
+      document.getElementById('btnToggleAlertsDrawer').addEventListener('click', () => {
+        document.getElementById('alertsDrawerBackdrop').classList.remove('hidden');
+      });
+      document.getElementById('btnCloseAlertsDrawer').addEventListener('click', () => {
+        document.getElementById('alertsDrawerBackdrop').classList.add('hidden');
+      });
+
+      // Load the six sample records only on explicit request
+      document.getElementById('btnSimulateXmlBatch').addEventListener('click', () => {
+        state.records.unshift(...JSON.parse(JSON.stringify(DEFAULT_RECORDS)));
+        saveState();
+        renderAll();
+        showToast('Exemplos carregados', 'Os 6 boletos de demonstração foram adicionados à planilha.', 'info');
+      });
+
+      // Upload XML Modal Open/Close
+      const uploadModal = document.getElementById('uploadModalBackdrop');
+      document.getElementById('btnOpenUploadModal').addEventListener('click', () => {
+        uploadModal.classList.remove('hidden');
+      });
+      document.getElementById('btnCloseUploadModal').addEventListener('click', () => {
+        uploadModal.classList.add('hidden');
+      });
+      document.getElementById('btnCancelUploadModal').addEventListener('click', () => {
+        uploadModal.classList.add('hidden');
+      });
+
+      // File Input Listeners inside Upload Modal
+      document.getElementById('xmlFileInput').addEventListener('change', (e) => {
+        const files = Array.from(e.target.files || []);
+        state.pendingXmlFiles = files;
+        const statusEl = document.getElementById('xmlSelectedStatus');
+        if (files.length > 0) {
+          statusEl.textContent = `${files.length} arquivo(s): ${files.map(f => f.name).join(', ')}`;
+        } else {
+          statusEl.textContent = 'Nenhum XML selecionado';
+        }
+      });
+
+      document.getElementById('boletoFileInput').addEventListener('change', (e) => {
+        const file = (e.target.files || [])[0] || null;
+        if (file && !isBoletoFileWithinLimit(file)) {
+          state.pendingBoletoFile = null;
+          e.target.value = '';
+          document.getElementById('boletoSelectedStatus').textContent = 'Arquivo maior que 5 MB';
+          showToast('Arquivo muito grande', 'O anexo do boleto deve ter no máximo 5 MB.', 'warning');
+          return;
+        }
+        state.pendingBoletoFile = file;
+        const statusEl = document.getElementById('boletoSelectedStatus');
+        statusEl.textContent = file ? `Anexo: ${file.name} (limite 5 MB)` : 'Opcional';
+      });
+      document.getElementById('danfeFileInput').addEventListener('change', e => {
+        const file = (e.target.files || [])[0] || null;
+        if (file && file.size > MAX_BOLETO_FILE_SIZE) {
+          state.pendingDanfeFile = null; e.target.value = '';
+          document.getElementById('danfeSelectedStatus').textContent = 'Arquivo maior que 5 MB';
+          showToast('Arquivo muito grande', 'O PDF da nota deve ter no máximo 5 MB.', 'warning'); return;
+        }
+        state.pendingDanfeFile = file;
+        document.getElementById('danfeSelectedStatus').textContent = file ? file.name : 'Opcional';
+      });
+
+      document.getElementById('btnFillSampleXml').addEventListener('click', () => {
+        document.getElementById('rawXmlTextarea').value = generateSampleNfeXml();
+      });
+
+      document.getElementById('btnDownloadSampleXml').addEventListener('click', () => {
+        const sample = generateSampleNfeXml();
+        const blob = new Blob([sample], { type: 'application/xml' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'exemplo_nfe_duplicatas.xml';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast('XML Modelo Baixado', 'Você pode importar esse arquivo .xml no sistema.', 'info');
+      });
+
+      document.getElementById('btnProcessXmlImport').addEventListener('click', async () => {
+        const rawText = document.getElementById('rawXmlTextarea').value.trim();
+        const attachedFile = state.pendingBoletoFile;
+        const attachedName = attachedFile ? attachedFile.name : '';
+        const files = state.pendingXmlFiles;
+        if (!files.length && !rawText) {
+          showToast('Nenhum XML informado', 'Selecione um arquivo ou cole o conteúdo XML antes de processar.', 'warning');
+          return;
+        }
+
+        const outcomes = [];
+        const knownImportKeys = new Set(state.records.map(record => record.importKey).filter(Boolean));
+        let alreadyImported = 0;
+        let importedBoletos = 0;
+        let attachmentWarnings = 0;
+        const inputs = files.length ? files : [{ name: 'nfe_colada_manual.xml', text: async () => rawText }];
+        for (const input of inputs) {
+          try {
+            const xml = await input.text();
+          const parsedItems = parseNfeXmlString(xml, input.name, attachedName);
+            const { newRecords: newItems, alreadyImported: duplicateCount } = filterNewImportRecords(parsedItems, knownImportKeys);
+            alreadyImported += duplicateCount;
+            if (attachedFile) {
+              for (const item of newItems) {
+                try {
+                  item.boletoKey = `boleto:${item.id}`;
+                  await saveArquivo(item.boletoKey, attachedFile, 'boleto');
+                } catch (error) {
+                  item.boletoKey = '';
+                  item.boletoFileName = '';
+                  attachmentWarnings++;
+                }
+              }
+            }
+            const xmlKey = parsedItems[0].xmlKey;
+            try {
+              if (!await getArquivo(xmlKey)) await saveArquivo(xmlKey, new File([xml], input.name, { type: 'application/xml' }), 'xml');
+            } catch (error) { attachmentWarnings++; }
+            if (newItems.length) {
+              if (state.pendingDanfeFile) {
+                try {
+                  const danfeKey = `danfe:${xmlKey}`;
+                  await saveArquivo(danfeKey, state.pendingDanfeFile, 'danfe');
+                  newItems.forEach(item => { item.danfeKey = danfeKey; });
+                } catch (error) { attachmentWarnings++; }
+              }
+            }
+            state.records.unshift(...newItems);
+            importedBoletos += newItems.length;
+            outcomes.push({ ok: true, name: input.name });
+          } catch (err) {
+            outcomes.push({ ok: false, name: input.name, reason: err.message || 'XML inválido.' });
+          }
+        }
+
+        if (importedBoletos > 0) saveState();
+        renderAll();
+        uploadModal.classList.add('hidden');
+        document.getElementById('rawXmlTextarea').value = '';
+        state.pendingXmlFiles = [];
+        state.pendingBoletoFile = null;
+        state.pendingDanfeFile = null;
+        document.getElementById('danfeFileInput').value = '';
+        const imported = outcomes.filter(item => item.ok).length;
+        const refused = outcomes.length - imported;
+        const reasons = outcomes.filter(item => !item.ok)
+          .map(item => `${item.name}: ${item.reason}`).join('\n');
+        const attachmentWarningText = attachmentWarnings
+          ? `\nAnexo não salvo em ${attachmentWarnings} boleto(s); tente anexar novamente.`
+          : '';
+        showToast(
+          `${imported} importados, ${refused} recusados`,
+          `${importedBoletos} boleto(s) novo(s); ${alreadyImported} já importado(s).${attachmentWarningText}${reasons ? `\n${reasons}` : ''}`,
+          refused || attachmentWarnings ? 'warning' : 'success'
+        );
+      });
+
+      // Boleto Preview Modal Controls
+      const previewModal = document.getElementById('boletoPreviewModalBackdrop');
+      document.getElementById('btnCloseBoletoPreview').addEventListener('click', () => {
+        previewModal.classList.add('hidden');
+      });
+      document.getElementById('btnCloseBoletoPreviewBottom').addEventListener('click', () => {
+        previewModal.classList.add('hidden');
+      });
+      document.getElementById('btnCopyBarcodeModal').addEventListener('click', () => {
+        const rec = state.records.find(r => r.id === state.activePreviewId);
+        if (rec) copyTextToClipboard(rec.digitableLine, `Boleto ${rec.supplier}`);
+      });
+      document.getElementById('btnOpenStoredBoleto').addEventListener('click', () => {
+        if (state.activePreviewId) openStoredBoleto(state.activePreviewId);
+      });
+      document.getElementById('btnTogglePaidFromModal').addEventListener('click', () => {
+        const rec = state.records.find(r => r.id === state.activePreviewId);
+        if (!rec) return;
+        if (rec.status === 'PAID') undoPayment(rec.id); else beginPayment(rec.id);
+      });
+      document.getElementById('replaceAttachmentInput').addEventListener('change', async (e) => {
+        const file = (e.target.files || [])[0];
+        const rec = state.records.find(r => r.id === state.activePreviewId);
+        if (file && rec) {
+          if (!isBoletoFileWithinLimit(file)) {
+            e.target.value = '';
+            showToast('Arquivo muito grande', 'O anexo do boleto deve ter no máximo 5 MB.', 'warning');
+            return;
+          }
+          const newBoletoKey = `boleto:${rec.id}:${Date.now()}`;
+          try {
+            await saveArquivo(newBoletoKey, file, 'boleto');
+          } catch (error) {
+            e.target.value = '';
+            showToast('Anexo não salvo', error.message || 'Não foi possível guardar o arquivo no navegador.', 'warning');
+            return;
+          }
+          rec.boletoKey = newBoletoKey;
+          rec.boletoFileName = file.name;
+          saveState();
+          renderAll();
+          openBoletoPreviewModal(rec.id);
+          showToast('Boleto anexado atualizado', `Arquivo ${file.name} vinculado à NF-e #${rec.nfeNumber}.`, 'success');
+        }
+        e.target.value = '';
+      });
+
+      document.getElementById('cancelPayment').addEventListener('click', () => {
+        const modal = document.getElementById('paymentModalBackdrop'); modal.classList.add('hidden'); modal.classList.remove('flex');
+      });
+      document.getElementById('paymentForm').addEventListener('submit', async event => {
+        event.preventDefault();
+        const record = state.records.find(item => item.id === state.activePaymentRecordId);
+        if (!record) return;
+        const file = document.getElementById('paymentProof').files[0];
+        if (file && file.size > MAX_BOLETO_FILE_SIZE) { showToast('Arquivo muito grande', 'O comprovante deve ter no máximo 5 MB.', 'warning'); return; }
+        let comprovanteKey = '', attachmentsFailed = false, xmlAvailable = Boolean(record.xmlKey);
+        try { const db = await openBoletoDatabase(); db.close(); } catch (error) { attachmentsFailed = true; }
+        if (file) {
+          comprovanteKey = `comprovante:${record.id}:${Date.now()}`;
+          try { await saveArquivo(comprovanteKey, file, 'comprovante'); }
+          catch (error) { comprovanteKey = ''; attachmentsFailed = true; }
+        }
+        if (record.xmlKey) { try { xmlAvailable = Boolean(await getArquivo(record.xmlKey)); if (!xmlAvailable) attachmentsFailed = true; } catch (error) { xmlAvailable = false; attachmentsFailed = true; } }
+        if (record.boletoKey) { try { if (!await getArquivo(record.boletoKey)) attachmentsFailed = true; } catch (error) { attachmentsFailed = true; } }
+        let entry;
+        try {
+          entry = buildPaymentHistoryEntry(record, {
+            pagoEm: document.getElementById('paymentDate').value,
+            valorPagoCentavos: amountToCents(Number(document.getElementById('paymentAmount').value)),
+            forma: document.getElementById('paymentMethod').value,
+            observacao: document.getElementById('paymentNote').value,
+            comprovanteKey
+          });
+        } catch (error) { showToast('Pagamento inválido', 'Informe uma data e um valor de pagamento válidos.', 'warning'); return; }
+        if (!xmlAvailable) entry.xmlKey = '';
+        record.status = 'PAID'; state.history.push(entry); saveState(); renderAll();
+        const modal = document.getElementById('paymentModalBackdrop'); modal.classList.add('hidden'); modal.classList.remove('flex');
+        showToast('Pagamento registrado', attachmentsFailed ? 'anexos não foram salvos' : `${record.supplier} entrou no histórico.`, attachmentsFailed ? 'warning' : 'success');
+      });
+
+      ['historyPeriod','historySupplier','historyFrom','historyTo'].forEach(id => document.getElementById(id).addEventListener('change', () => {
+        const custom = document.getElementById('historyPeriod').value === 'custom';
+        document.getElementById('historyFromWrap').classList.toggle('hidden', !custom);
+        document.getElementById('historyToWrap').classList.toggle('hidden', !custom);
+        renderPaymentHistory();
+      }));
+      document.getElementById('btnExportHistoryCsv').addEventListener('click', () => {
+        const entries = filterHistoryEntries(state.history, document.getElementById('historyPeriod').value,
+          document.getElementById('historyFrom').value, document.getElementById('historyTo').value, document.getElementById('historySupplier').value);
+        const url = URL.createObjectURL(new Blob([buildHistoryCsv(entries)], { type: 'text/csv;charset=utf-8;' }));
+        const link = document.createElement('a'); link.href = url; link.download = 'argon_historico_pagamentos.csv'; link.click(); URL.revokeObjectURL(url);
+      });
+
+      // New Manual Entry Modal Controls
+      const newModal = document.getElementById('newEntryModalBackdrop');
+      document.getElementById('btnOpenNewModal').addEventListener('click', () => {
+        newModal.classList.remove('hidden');
+      });
+      document.getElementById('btnCloseNewModal').addEventListener('click', () => {
+        newModal.classList.add('hidden');
+      });
+      document.getElementById('btnCancelNewModal').addEventListener('click', () => {
+        newModal.classList.add('hidden');
+      });
+
+      const manualBarcodeInput = document.getElementById('inputNewBarcode');
+      const manualBarcodeBadge = document.getElementById('newDigitableStatus');
+      manualBarcodeInput.addEventListener('input', () => paintDigitableStatus(manualBarcodeBadge, manualBarcodeInput.value));
+      document.getElementById('inputNewAttachment').addEventListener('change', (e) => {
+        const file = (e.target.files || [])[0];
+        if (file && !isBoletoFileWithinLimit(file)) {
+          e.target.value = '';
+          showToast('Arquivo muito grande', 'O anexo do boleto deve ter no máximo 5 MB.', 'warning');
+        }
+      });
+
+      document.getElementById('newEntryForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const supplier = document.getElementById('inputNewSupplier').value.trim();
+        const cnpj = document.getElementById('inputNewCnpj').value.trim() || '00.000.000/0001-00';
+        const nfe = document.getElementById('inputNewNfe').value.trim() || String(Math.floor(100000 + Math.random() * 900000));
+        const dueDate = document.getElementById('inputNewDueDate').value || state.referenceDate;
+        let amountCents;
+        try {
+          amountCents = amountToCents(parseFloat(document.getElementById('inputNewAmount').value) || 0);
+        } catch (err) {
+          showToast('Valor inválido', 'Informe um valor que possa ser armazenado em centavos inteiros.', 'warning');
+          return;
+        }
+        const barcode = document.getElementById('inputNewBarcode').value.trim();
+        const attachmentInput = document.getElementById('inputNewAttachment');
+        const attachmentFile = (attachmentInput.files || [])[0];
+        if (attachmentFile && !isBoletoFileWithinLimit(attachmentFile)) {
+          showToast('Arquivo muito grande', 'O anexo do boleto deve ter no máximo 5 MB.', 'warning');
+          return;
+        }
+
+        const newRec = {
+          id: 'bol-' + Date.now(),
+          supplier,
+          cnpj,
+          nfeNumber: nfe.replace(/[^0-9A-Za-z-]/g, '') || '000991',
+          parcela: '01/01',
+          issueDate: state.referenceDate,
+          dueDate,
+          amountCents,
+          status: 'PENDING',
+          xmlKey: '',
+          boletoKey: '',
+          xmlFileName: `nfe_${nfe.replace(/\s+/g, '_').toLowerCase()}.xml`,
+          boletoFileName: attachmentFile ? attachmentFile.name : '',
+          bank: '',
+          digitableLine: barcode,
+          category: 'Manual / Avulso'
+        };
+
+        if (attachmentFile) {
+          try {
+            newRec.boletoKey = `boleto:${newRec.id}`;
+            await saveArquivo(newRec.boletoKey, attachmentFile, 'boleto');
+          } catch (error) {
+            showToast('Anexo não salvo', error.message || 'Não foi possível guardar o arquivo no navegador.', 'warning');
+            return;
+          }
+        }
+        state.records.unshift(newRec);
+        saveState();
+        renderAll();
+        newModal.classList.add('hidden');
+        e.target.reset();
+        paintDigitableStatus(manualBarcodeBadge, '');
+        showToast('Linha adicionada à planilha', `${supplier} (${formatCurrencyBRL(amountCents)}) salvo com sucesso.`, 'success');
+      });
+    });
+  </script>
+</body>
+</html>
