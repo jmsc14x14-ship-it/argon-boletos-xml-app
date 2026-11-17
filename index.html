@@ -118,19 +118,6 @@
         transparent 14px
       );
     }
-    @media print {
-      body.print-calendar { background: #fff !important; color: #111 !important; display: block !important; }
-      body.print-calendar > header,
-      body.print-calendar > main > :not(#calendarViewContainer),
-      body.print-calendar > :not(header):not(main) { display: none !important; }
-      body.print-calendar > main { display: block !important; width: 100% !important; max-width: none !important; margin: 0 !important; padding: 0 !important; }
-      body.print-calendar #calendarViewContainer { display: block !important; position: static !important; width: 100% !important; border: 0 !important; box-shadow: none !important; background: #fff !important; color: #111 !important; }
-      body.print-calendar #calendarViewContainer * { color: #111 !important; box-shadow: none !important; }
-      body.print-calendar #calendarViewContainer .calendar-toolbar { display: none !important; }
-      body.print-calendar #calendarViewContainer .calendar-day-cell { background: #fff !important; border-color: #bbb !important; min-height: 78px !important; }
-      body.print-calendar #calendarViewContainer .calendar-day-cell.is-outside-month { color: #888 !important; background: #f5f5f5 !important; }
-      body.print-calendar #calendarViewContainer .calendar-record { border-color: #aaa !important; background: #fff !important; }
-    }
   </style>
 </head>
 <body class="min-h-screen flex flex-col bg-[#090d16] text-slate-100 selection:bg-indigo-500 selection:text-white">
@@ -490,7 +477,6 @@
           <button id="calendarPrevMonth" type="button" class="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm hover:bg-slate-800" aria-label="Mês anterior">‹</button>
           <button id="calendarToday" type="button" class="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs hover:bg-slate-800">Hoje</button>
           <button id="calendarNextMonth" type="button" class="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm hover:bg-slate-800" aria-label="Próximo mês">›</button>
-          <button id="calendarPrint" type="button" class="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-500">Imprimir calendário</button>
         </div>
       </div>
       <div class="flex flex-wrap items-center justify-between gap-2">
@@ -1626,7 +1612,7 @@
         list.innerHTML = selectedRecords.map(record => `
           <article class="calendar-record flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900/70 p-3">
             <div class="min-w-0"><h4 class="truncate text-sm font-semibold">${escapeHtml(record.supplier)}</h4><p class="mt-1 text-xs text-slate-400">NF-e ${escapeHtml(record.nfeNumber)} · Parcela ${escapeHtml(record.parcela || '—')} · ${escapeHtml(record.cnpj || '')}</p></div>
-            <div class="flex items-center gap-3"><strong class="whitespace-nowrap font-mono text-sm">${escapeHtml(formatCurrencyBRL(record.amountCents))}</strong><button type="button" data-calendar-pay="${escapeHtml(record.id)}" class="rounded bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-600">Registrar pagamento</button></div>
+            <div class="flex flex-wrap items-center gap-2"><strong class="whitespace-nowrap font-mono text-sm">${escapeHtml(formatCurrencyBRL(record.amountCents))}</strong><button type="button" data-calendar-print="danfe" data-calendar-record="${escapeHtml(record.id)}" class="rounded border border-sky-700 px-3 py-1.5 text-xs font-semibold text-sky-200 hover:bg-sky-900/50">Imprimir DANFE</button><button type="button" data-calendar-print="boleto" data-calendar-record="${escapeHtml(record.id)}" class="rounded border border-indigo-700 px-3 py-1.5 text-xs font-semibold text-indigo-200 hover:bg-indigo-900/50">Imprimir boleto</button><button type="button" data-calendar-pay="${escapeHtml(record.id)}" class="rounded bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-600">Registrar pagamento</button></div>
           </article>`).join('');
       }
 
@@ -1634,7 +1620,60 @@
         state.calendarSelectedDate = button.getAttribute('data-calendar-date');
         renderCalendarView();
       }));
+      list.querySelectorAll('[data-calendar-print]').forEach(button => button.addEventListener('click', () => {
+        printRecordDocument(button.getAttribute('data-calendar-record'), button.getAttribute('data-calendar-print'));
+      }));
       list.querySelectorAll('[data-calendar-pay]').forEach(button => button.addEventListener('click', () => beginPayment(button.getAttribute('data-calendar-pay'))));
+    }
+
+    async function printRecordDocument(recordId, kind) {
+      const record = state.records.find(item => item.id === recordId);
+      if (!record) return;
+      const printWindow = window.open('about:blank', '_blank');
+      if (!printWindow) {
+        showToast('Impressão bloqueada', 'Permita a abertura de uma nova aba para imprimir o documento.', 'warning');
+        return;
+      }
+      printWindow.opener = null;
+      try {
+        let attachment;
+        if (kind === 'danfe') {
+          attachment = record.danfeKey ? await getArquivo(record.danfeKey) : null;
+        } else {
+          attachment = (record.boletoKey ? await getArquivo(record.boletoKey) : null) || await getBoletoAttachment(record.id);
+        }
+        if (!attachment?.file) {
+          printWindow.close();
+          showToast(kind === 'danfe' ? 'DANFE não anexado' : 'Boleto não anexado', kind === 'danfe' ? 'Anexe o PDF da nota para imprimir.' : 'Anexe o arquivo do boleto para imprimir.', 'warning');
+          return;
+        }
+        const type = String(attachment.file.type || attachment.fileType || '').toLowerCase();
+        const fileName = attachment.fileName || (kind === 'danfe' ? `danfe_${record.nfeNumber}.pdf` : record.boletoFileName || `boleto_${record.nfeNumber}.pdf`);
+        if (type !== 'application/pdf' && !type.startsWith('image/')) {
+          printWindow.close();
+          showToast('Formato não compatível', 'A impressão individual aceita PDF ou imagem.', 'warning');
+          return;
+        }
+        const url = URL.createObjectURL(attachment.file);
+        const title = kind === 'danfe' ? `DANFE NF-e ${record.nfeNumber}` : `Boleto NF-e ${record.nfeNumber}`;
+        printWindow.document.open();
+        printWindow.document.write('<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title></title><style>html,body{margin:0;width:100%;height:100%;background:#fff}iframe,img{display:block;width:100%;height:100%;border:0;object-fit:contain}</style></head><body></body></html>');
+        printWindow.document.close();
+        printWindow.document.title = `${title} — ${fileName}`;
+        const printElement = type.startsWith('image/') ? printWindow.document.createElement('img') : printWindow.document.createElement('iframe');
+        if (printElement.tagName === 'IFRAME') printElement.setAttribute('title', title);
+        printElement.src = url;
+        printElement.onload = () => setTimeout(() => {
+          try { printWindow.focus(); printWindow.print(); }
+          catch (error) { showToast('Falha ao imprimir', 'Use a opção Imprimir na janela do documento.', 'warning'); }
+        }, 500);
+        printWindow.addEventListener('afterprint', () => URL.revokeObjectURL(url), { once: true });
+        printWindow.document.body.appendChild(printElement);
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      } catch (error) {
+        printWindow.close();
+        showToast('Falha ao abrir documento', error.message || 'Não foi possível carregar o arquivo para impressão.', 'warning');
+      }
     }
 
     function renderKpisAndBanner() {
@@ -2502,12 +2541,6 @@
         state.calendarMonth = state.calendarSelectedDate.slice(0, 7);
         renderCalendarView();
       });
-      document.getElementById('calendarPrint').addEventListener('click', () => {
-        document.body.classList.add('print-calendar');
-        window.print();
-      });
-      window.addEventListener('afterprint', () => document.body.classList.remove('print-calendar'));
-
       // Density Toggle
       document.getElementById('btnToggleDensity').addEventListener('click', () => {
         const order = ['COMPACT', 'COMFORTABLE', 'SPACIOUS'];
