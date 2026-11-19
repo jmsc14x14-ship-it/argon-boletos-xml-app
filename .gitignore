@@ -1,0 +1,6 @@
+node_modules/
+dist/
+argon_backup_*.json
+*.backup.json
+.DS_Store
+Thumbs.db

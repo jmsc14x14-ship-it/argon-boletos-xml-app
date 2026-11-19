@@ -1,0 +1,65 @@
+{
+  "name": "argon-boletos-xml",
+  "version": "1.5.0",
+  "description": "Sistema offline de automação de boletos em XML (NF-e) com planilha adaptativa, cofre local e alertas de vencimento de 7 dias",
+  "main": "main.js",
+  "scripts": {
+    "build:css": "tailwindcss -i ./input.css -o ./style.css --minify",
+    "start": "electron .",
+    "test": "node exemplos/test_argon.mjs",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win --x64",
+    "dist:mac": "electron-builder --mac",
+    "dist:linux": "electron-builder --linux"
+  },
+  "keywords": [
+    "boletos",
+    "xml",
+    "nfe",
+    "planilha",
+    "automacao",
+    "financeiro",
+    "offline"
+  ],
+  "author": "João Marcelo Silva Cortez",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8",
+    "tailwindcss": "^3.4.17"
+  },
+  "build": {
+    "appId": "com.argon.boletosxml",
+    "productName": "Argon Boletos XML",
+    "files": [
+      "index.html",
+      "app.js",
+      "style.css",
+      "manifest.json",
+      "sw.js",
+      "icon.svg",
+      "fonts/**/*",
+      "main.js",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    }
+  }
+}
